@@ -118,7 +118,6 @@
             display: flex; align-items: center; gap: 8px;
             margin-bottom: 28px; color: var(--muted); font-size: 0.9em;
         }
-        .options input[type="checkbox"] { accent-color: var(--accent); }
 
         #results { width: 100%; max-width: 500px; }
 
@@ -292,11 +291,6 @@
         <input type="number" id="numPlayers" min="1" max="20" value="2">
         <label for="myPlayer">Your position:</label>
         <input type="number" id="myPlayer" min="0" max="19" value="0">
-    </div>
-
-    <div class="options">
-        <input type="checkbox" id="autoRefresh" checked>
-        <label for="autoRefresh">Auto-Refresh (alle 5 s)</label>
     </div>
 
     <div class="turn-banner banner-myturn">🟢 YOUR TURN!</div>
@@ -573,8 +567,8 @@ async function api(path) {
 function startTimer() {
     stopTimer();
     timer = setInterval(() => {
-        if (document.getElementById('autoRefresh').checked) loadGames();
-    }, 5000);
+        loadGames();
+    }, 5500);
 }
 function stopTimer()  { clearInterval(timer); timer = null; }
 function clearState() {
