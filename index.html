@@ -208,18 +208,18 @@
             gap: 14px; width: 100%; max-width: 500px; margin-top: 6px;
         }
         .refresh-info { text-align: center; color: var(--muted); font-size: 0.75em; }
-        .poll-badge {
+        .conn-badge {
             font-size: 0.7em; font-weight: 600; padding: 2px 8px;
             border-radius: 5px; display: inline-flex; align-items: center; gap: 5px;
-            color: var(--muted); background: rgba(255,255,255,0.04);
         }
-        .poll-dot {
+        .conn-badge.live { color: var(--green); background: rgba(34,197,94,0.1); }
+        .conn-badge.poll { color: var(--muted); background: rgba(255,255,255,0.04); }
+        .conn-dot {
             width: 6px; height: 6px; border-radius: 50%;
-            display: inline-block; background: #666;
-            animation: blink 2s infinite;
+            display: inline-block;
         }
-        .poll-badge.fast .poll-dot { background: var(--green); animation: blink 0.8s infinite; }
-        .poll-badge.slow .poll-dot { background: var(--amber); animation: blink 3s infinite; }
+        .conn-badge.live .conn-dot { background: var(--green); animation: blink 1.5s infinite; }
+        .conn-badge.poll .conn-dot { background: #666; animation: blink 2s infinite; }
 
         .api-error-bar {
             display: flex; align-items: center; justify-content: center; gap: 8px;
@@ -240,7 +240,7 @@
         }
         .alarm-toggle:hover { color: #444; }
         .alarm-toggle.is-on { color: var(--amber); }
-        .alarm-icon { font-size: 1.2em; transition: transform 0.3s; }
+        .alarm-icon { font-size: 1.2em; }
         .alarm-toggle.is-on .alarm-icon { animation: ring 0.6s ease; }
         @keyframes ring {
             0% { transform: rotate(0); } 20% { transform: rotate(14deg); }
@@ -288,6 +288,8 @@
         .debug-entry.log-ok   { color: #4a9; }
         .debug-entry.log-warn { color: #a85; }
         .debug-entry.log-err  { color: #c55; }
+        .debug-entry.log-ws   { color: #88c; }
+        .debug-entry.log-evt  { color: #a8d; }
     </style>
 </head>
 <body>
@@ -327,7 +329,7 @@ function dbg(msg, level) {
     level = level || 'info';
     var t = new Date().toLocaleTimeString('en-GB', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 });
     debugEntries.push({ t: t, msg: msg, level: level });
-    if (debugEntries.length > 200) debugEntries.shift();
+    if (debugEntries.length > 300) debugEntries.shift();
     var el = document.getElementById('debugLog');
     if (!el) return;
     var div = document.createElement('div');
@@ -340,6 +342,7 @@ function toggleDebug() { document.getElementById('debugPanel').classList.toggle(
 function clearDebug() { debugEntries.length = 0; document.getElementById('debugLog').innerHTML = ''; }
 
 var API = 'https://online-go.com/api/v1';
+var WS_URL = 'wss://online-go.com/ws';
 
 var playerId = null, playerName = '';
 var cachedStates = {}, cachedActiveGames = [];
@@ -347,12 +350,206 @@ var lastEntries = [], teamNames = ['', ''];
 var numPlayers = 2, myPlayerIndex = 0, lastApiError = null;
 var prevMoves = {};
 
-/* ── Polling ────────────────────────────────────── */
+/* ── WebSocket ──────────────────────────────────── */
+var ws = null;
+var wsConnected = false;
+var subscribedGames = {};
+var wsReconnectTimer = null;
+var wsPingTimer = null;
+var wsMessageId = 0;
+
+function wsConnect() {
+    if (ws) {
+        dbg('wsConnect: closing existing connection', 'ws');
+        try { ws.close(); } catch(e) {}
+    }
+
+    dbg('wsConnect: connecting to ' + WS_URL, 'ws');
+
+    try {
+        ws = new WebSocket(WS_URL);
+    } catch(e) {
+        dbg('wsConnect: failed to create WebSocket: ' + e.message, 'err');
+        return;
+    }
+
+    ws.onopen = function() {
+        dbg('WS: connected ✓', 'ok');
+        wsConnected = true;
+        clearApiError();
+        // Try authenticating as guest/spectator
+        dbg('WS: attempting unauthenticated identify…', 'ws');
+        wsSend('authenticate', { device_id: 'tracker-' + Date.now() });
+        wsSend('notification/connect', { player_id: 0 });
+        // Start ping keepalive
+        clearInterval(wsPingTimer);
+        wsPingTimer = setInterval(function() {
+            wsSend('net/ping', { client: Date.now(), drift: 0, latency: 0 });
+        }, 10000);
+
+        // Re-subscribe to games
+        var gids = Object.keys(subscribedGames);
+        if (gids.length) {
+            dbg('WS: re-subscribing to ' + gids.length + ' games', 'ws');
+            gids.forEach(function(gid) {
+                doGameConnect(parseInt(gid));
+            });
+        }
+
+        updateConnectionUI();
+    };
+
+    ws.onclose = function(e) {
+        dbg('WS: closed (code=' + e.code + ' reason=' + (e.reason || 'none') + ')', 'warn');
+        wsConnected = false;
+        clearInterval(wsPingTimer);
+        updateConnectionUI();
+
+        // Reconnect after 3s
+        clearTimeout(wsReconnectTimer);
+        wsReconnectTimer = setTimeout(function() {
+            if (playerId) {
+                dbg('WS: reconnecting…', 'ws');
+                wsConnect();
+            }
+        }, 3000);
+    };
+
+    ws.onerror = function(e) {
+        dbg('WS: error event', 'err');
+    };
+
+    ws.onmessage = function(e) {
+        var raw = String(e.data);
+
+        // Log first 20 messages fully, then only game-related
+        dbg('WS RX: ' + raw.substring(0, 250), 'evt');
+
+        // Handle pong
+        if (raw.indexOf('net/pong') !== -1) return;
+
+        // Try to parse as JSON
+        try {
+            var msg = JSON.parse(raw);
+            handleWsMessage(msg);
+        } catch(err) {
+            // Might not be JSON — log it
+            dbg('WS RX (non-JSON): ' + raw.substring(0, 200), 'warn');
+        }
+    };
+}
+
+function wsSend(command, data) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+        dbg('wsSend: not connected, dropping: ' + command, 'warn');
+        return;
+    }
+    var msg = JSON.stringify([command, data]);
+    ws.send(msg);
+}
+
+function handleWsMessage(msg) {
+    // OGS protocol: messages are typically [event_name, data]
+    if (!Array.isArray(msg)) {
+        // Could be an object — try to handle
+        dbg('WS MSG (object): ' + JSON.stringify(msg).substring(0, 200), 'evt');
+        return;
+    }
+
+    var event = msg[0];
+    var data = msg[1];
+
+    // Game data events
+    if (typeof event === 'string' && event.indexOf('game/') === 0) {
+        handleGameEvent(event, data);
+    }
+}
+
+function handleGameEvent(event, data) {
+    // Extract game ID from event name: "game/12345/move" → 12345
+    var parts = event.split('/');
+    if (parts.length < 3) return;
+    var gid = parseInt(parts[1]);
+    var type = parts.slice(2).join('/');
+
+    if (type === 'gamedata') {
+        var mn = 0;
+        if (typeof data.move_number === 'number') mn = data.move_number;
+        else if (Array.isArray(data.moves)) mn = data.moves.length;
+        dbg('WS gamedata gid=' + gid + ' move=' + mn, 'ok');
+        cachedStates[gid] = Object.assign({}, cachedStates[gid] || {}, { move_number: mn });
+        renderFromCache();
+    }
+    else if (type === 'move') {
+        var prev = cachedStates[gid] ? (cachedStates[gid].move_number || 0) : 0;
+        var mn2 = (typeof data.move_number === 'number') ? data.move_number : prev + 1;
+        dbg('WS move gid=' + gid + ' move=' + mn2 + ' (was ' + prev + ')', 'ok');
+        cachedStates[gid] = Object.assign({}, cachedStates[gid] || {}, { move_number: mn2 });
+        renderFromCache();
+    }
+    else if (type === 'clock') {
+        dbg('WS clock gid=' + gid, 'evt');
+    }
+    else {
+        dbg('WS game event: ' + type + ' gid=' + gid, 'evt');
+    }
+}
+
+function doGameConnect(gameId) {
+    dbg('WS EMIT: game/connect gid=' + gameId, 'ws');
+    wsSend('game/connect', { game_id: gameId });
+}
+
+function wsSubscribeGame(gameId) {
+    if (subscribedGames[gameId]) return;
+    subscribedGames[gameId] = true;
+    dbg('wsSubscribeGame(' + gameId + ')', 'ws');
+
+    if (wsConnected) {
+        doGameConnect(gameId);
+    } else {
+        dbg('wsSubscribeGame(' + gameId + '): not connected, will subscribe on connect', 'warn');
+    }
+}
+function wsUnsubscribeAll() {
+    var gids = Object.keys(subscribedGames);
+    if (gids.length) {
+        dbg('wsUnsubscribeAll: ' + gids.length + ' games', 'ws');
+        gids.forEach(function(gid) {
+            if (wsConnected) wsSend('game/disconnect', { game_id: parseInt(gid) });
+        });
+    }
+    subscribedGames = {};
+}
+
+function wsDisconnect() {
+    wsUnsubscribeAll();
+    clearInterval(wsPingTimer);
+    clearTimeout(wsReconnectTimer);
+    if (ws) {
+        try { ws.close(); } catch(e) {}
+        ws = null;
+    }
+    wsConnected = false;
+}
+
+function renderFromCache() {
+    if (!cachedActiveGames.length) return;
+    lastEntries = cachedActiveGames.slice(0, 5).map(function(g) {
+        return { game: g, state: cachedStates[g.id] || null, cached: true };
+    });
+    render(lastEntries);
+}
+
+function updateConnectionUI() {
+    if (lastEntries.length) render(lastEntries);
+}
+
+/* ── REST Polling (fallback) ────────────────────── */
 var stateTimer = null;
-var listTimer = null;
 var BASE_INTERVAL = 5000;
-var currentInterval = BASE_INTERVAL;
 var MAX_INTERVAL = 10000;
+var currentInterval = BASE_INTERVAL;
 var consecutiveErrors = 0;
 var polling = false;
 
@@ -364,38 +561,46 @@ function startPolling() {
     stopPolling();
     polling = true;
     currentInterval = getBackoffInterval();
-    dbg('startPolling: state every ' + currentInterval + 'ms', 'ok');
-
-    stateTimer = setInterval(function() { pollStates(); }, currentInterval);
+    // If WS is live, poll much less frequently (just as safety net)
+    var interval = wsConnected ? 30000 : currentInterval;
+    dbg('startPolling: every ' + interval + 'ms (ws=' + wsConnected + ')', 'ok');
+    stateTimer = setInterval(function() { pollStates(); }, interval);
 }
 
 function restartPolling() {
     if (!polling) return;
     clearInterval(stateTimer);
     currentInterval = getBackoffInterval();
-    dbg('restartPolling: interval now ' + currentInterval + 'ms (errors=' + consecutiveErrors + ')', 'info');
-    stateTimer = setInterval(function() { pollStates(); }, currentInterval);
+    var interval = wsConnected ? 30000 : currentInterval;
+    dbg('restartPolling: interval now ' + interval + 'ms', 'info');
+    stateTimer = setInterval(function() { pollStates(); }, interval);
 }
 
 function stopPolling() {
     polling = false;
     clearInterval(stateTimer); stateTimer = null;
-    clearInterval(listTimer); listTimer = null;
 }
 
-/* ── Poll game states (lightweight, every 4s) ──── */
 async function pollStates() {
     var games = cachedActiveGames;
 
-    // If no games cached, try refreshing the game list
     if (!games.length || !playerId) {
         await refreshGameList();
         games = cachedActiveGames;
         if (!games.length) return;
     }
 
-    var hadError = false;
+    // If WS is connected and we have cached states, skip REST
+    if (wsConnected) {
+        var allCached = games.slice(0, 5).every(function(g) { return !!cachedStates[g.id]; });
+        if (allCached) {
+            dbg('pollStates: WS live + all cached, skipping REST', 'info');
+            renderFromCache();
+            return;
+        }
+    }
 
+    var hadError = false;
     var entries = await Promise.all(games.slice(0, 5).map(async function(g) {
         try {
             var state = await api('/games/' + g.id + '/state/');
@@ -403,11 +608,7 @@ async function pollStates() {
             return { game: g, state: state, cached: false };
         } catch (err) {
             hadError = true;
-            if (err.apiStatus === 429) {
-                dbg('pollStates: 429 on gid=' + g.id, 'warn');
-            } else {
-                dbg('pollStates: error gid=' + g.id + ' → ' + err.message, 'err');
-            }
+            dbg('pollStates: error gid=' + g.id + ' → ' + (err.apiStatus || '?') + ' ' + err.message, 'err');
             setApiError(err.apiStatus || 0, err.message);
             var fb = cachedStates[g.id] || null;
             return { game: g, state: fb, cached: !!fb };
@@ -418,33 +619,27 @@ async function pollStates() {
         consecutiveErrors++;
         restartPolling();
     } else {
-        if (consecutiveErrors > 0) {
-            consecutiveErrors = 0;
-            restartPolling();
-        }
+        if (consecutiveErrors > 0) { consecutiveErrors = 0; restartPolling(); }
         clearApiError();
     }
 
     lastEntries = entries;
     render(entries);
 }
-/* ── Refresh game list (heavy, every 60s) ──────── */
+
 async function refreshGameList() {
     if (!playerId) return;
-    dbg('refreshGameList: fetching…', 'info');
+    dbg('refreshGameList…', 'info');
     try {
         var full = await api('/players/' + playerId + '/full/');
         cachedActiveGames = full.active_games || [];
-        dbg('refreshGameList: ' + cachedActiveGames.length + ' active games', 'ok');
+        dbg('refreshGameList: ' + cachedActiveGames.length + ' games', 'ok');
         if (!cachedActiveGames.length) {
             showStatus('No active game found.');
             clearState(); stopPolling();
         }
     } catch (err) {
-        dbg('refreshGameList: failed → ' + err.message, 'err');
-        if (err.apiStatus === 429) {
-            dbg('refreshGameList: 429, keeping cached list', 'warn');
-        }
+        dbg('refreshGameList failed: ' + err.message, 'err');
     }
 }
 
@@ -588,27 +783,26 @@ async function search() {
     var btn = document.getElementById('searchBtn');
     btn.disabled = true; btn.textContent = '…';
     stopPolling(); clearState(); clearApiError();
+    wsDisconnect();
     consecutiveErrors = 0;
     showStatus('🔍 Searching player…');
     dbg('search: looking up "' + name + '"', 'info');
 
     try {
-        dbg('search: calling /players/?username=' + name, 'info');
         var pData = await api('/players/?username=' + enc(name));
         dbg('search: got ' + (pData.results ? pData.results.length : 0) + ' results', 'ok');
         var match = null;
         if (pData.results) {
             match = pData.results.find(function(p) { return p.username.toLowerCase() === name.toLowerCase(); }) || pData.results[0];
         }
-        if (!match) { dbg('search: no match found', 'warn'); showStatus('Player "' + name + '" not found.', true); return; }
+        if (!match) { showStatus('Player "' + name + '" not found.', true); return; }
 
         playerId = match.id; playerName = match.username.toLowerCase();
         prevMoves = {}; cachedStates = {}; cachedActiveGames = []; lastEntries = [];
         dbg('search: found ' + match.username + ' id=' + playerId, 'ok');
         if (!teamNames[myPlayerIndex]) teamNames[myPlayerIndex] = match.username;
 
-        // Initial load: game list + states
-        dbg('search: fetching game list…', 'info');
+        // Fetch game list
         var full = await api('/players/' + playerId + '/full/');
         cachedActiveGames = full.active_games || [];
         dbg('search: ' + cachedActiveGames.length + ' active games', 'ok');
@@ -617,10 +811,18 @@ async function search() {
             showStatus('No active game found.'); return;
         }
 
-        // Fetch initial states
+        // Connect WebSocket
+        wsConnect();
+
+        // Subscribe to games
+        cachedActiveGames.slice(0, 5).forEach(function(g) {
+            wsSubscribeGame(g.id);
+        });
+
+        // Fetch initial states via REST
         await pollStates();
 
-        // Start timers
+        // Start polling as fallback
         startPolling();
 
     } catch (err) {
@@ -664,9 +866,9 @@ function render(entries) {
         prevMoves[game.id] = Z;
         linksHTML += '<a class="game-link" href="https://online-go.com/game/' + game.id + '" target="_blank" rel="noopener">↗ Open on OGS</a>';
     }
-    var pollClass = consecutiveErrors > 0 ? 'slow' : 'fast';
-    var pollLabel = currentInterval < 5000 ? (currentInterval / 1000) + 's' : (currentInterval / 1000).toFixed(0) + 's';
-    linksHTML += '<div class="footer-row"><span class="poll-badge ' + pollClass + '"><span class="poll-dot"></span>poll ' + pollLabel + '</span><span class="refresh-info">Updated: ' + new Date().toLocaleTimeString('en-GB') + '</span></div>';
+    var cc = wsConnected ? 'live' : 'poll';
+    var ct = wsConnected ? 'live' : 'polling ' + (currentInterval / 1000) + 's';
+    linksHTML += '<div class="footer-row"><span class="conn-badge ' + cc + '"><span class="conn-dot"></span>' + ct + '</span><span class="refresh-info">Updated: ' + new Date().toLocaleTimeString('en-GB') + '</span></div>';
     document.getElementById('results').innerHTML = linksHTML;
     document.body.classList.toggle('my-turn', anyMyTurn);
     document.body.classList.toggle('im-next', !anyMyTurn && anyImNext);
