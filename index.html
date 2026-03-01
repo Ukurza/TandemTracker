@@ -134,6 +134,11 @@
             align-items: center; gap: 12px;
         }
         .player { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 0.95em; }
+        .player .is-me {
+            background: var(--accent); color: white;
+            font-size: 0.6em; padding: 2px 6px; border-radius: 5px;
+            font-weight: 700; text-transform: uppercase;
+        }
         .stone { width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0; }
         .stone.black {
             background: radial-gradient(circle at 35% 35%, #555, #111);
@@ -166,8 +171,16 @@
             text-align: center; color: var(--muted);
             font-size: 0.85em; margin-top: 6px;
         }
+        .cached-badge {
+            display: inline-block;
+            background: #3a2a10;
+            color: var(--amber);
+            font-size: 0.7em;
+            padding: 2px 8px;
+            border-radius: 5px;
+            margin-left: 6px;
+        }
 
-        /* ── Zyklus-Visualisierung ──────────────── */
         .cycle-container {
             margin: 24px 0 8px;
             padding: 18px 12px;
@@ -175,78 +188,51 @@
             border-radius: 12px;
         }
         .cycle-label {
-            text-align: center;
-            color: var(--muted);
-            font-size: 0.75em;
-            text-transform: uppercase;
-            letter-spacing: 1.5px;
-            margin-bottom: 14px;
+            text-align: center; color: var(--muted);
+            font-size: 0.75em; text-transform: uppercase;
+            letter-spacing: 1.5px; margin-bottom: 14px;
         }
         .cycle-track {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 0;
-            flex-wrap: wrap;
+            display: flex; align-items: center;
+            justify-content: center; gap: 0; flex-wrap: wrap;
         }
         .cycle-slot {
-            width: 44px; height: 44px;
-            border-radius: 50%;
+            width: 44px; height: 44px; border-radius: 50%;
             display: flex; align-items: center; justify-content: center;
-            font-size: 0.85em; font-weight: 700;
-            background: #1e1e36;
-            border: 2px solid #2a2a4a;
-            color: var(--muted);
-            position: relative;
-            transition: all 0.4s ease;
-            flex-shrink: 0;
+            font-size: 0.75em; font-weight: 700;
+            background: #1e1e36; border: 2px solid #2a2a4a;
+            color: var(--muted); position: relative;
+            transition: all 0.4s ease; flex-shrink: 0;
         }
         .cycle-slot.is-current {
-            background: #2a2a5a;
-            border-color: var(--accent);
-            color: var(--text);
-            box-shadow: 0 0 14px rgba(233,69,96,0.4);
+            background: #2a2a5a; border-color: var(--accent);
+            color: var(--text); box-shadow: 0 0 14px rgba(233,69,96,0.4);
             transform: scale(1.12);
         }
-        .cycle-slot.is-mine {
-            border-color: var(--green);
-        }
+        .cycle-slot.is-mine { border-color: var(--green); }
         .cycle-slot.is-current.is-mine {
-            background: #0a3d1f;
-            border-color: var(--green);
-            color: var(--green);
-            box-shadow: 0 0 20px rgba(34,197,94,0.5);
+            background: #0a3d1f; border-color: var(--green);
+            color: var(--green); box-shadow: 0 0 20px rgba(34,197,94,0.5);
         }
-        .cycle-slot.is-next-mine {
-            border-color: var(--amber);
-            border-style: dashed;
+        .cycle-slot.is-next-mine { border-color: var(--amber); border-style: dashed; }
+        .cycle-slot.is-past {
+            opacity: 0.35;
         }
         .cycle-slot-label {
-            position: absolute;
-            top: -18px;
-            font-size: 0.6em;
-            font-weight: 700;
-            letter-spacing: 0.5px;
-            white-space: nowrap;
+            position: absolute; top: -18px;
+            font-size: 0.6em; font-weight: 700;
+            letter-spacing: 0.5px; white-space: nowrap;
         }
         .cycle-slot-label.du { color: var(--green); }
         .cycle-slot-label.jetzt { color: var(--accent); }
-        .cycle-arrow {
-            color: #2a2a4a;
-            font-size: 0.7em;
-            padding: 0 3px;
-            flex-shrink: 0;
+        .cycle-arrow { color: #2a2a4a; font-size: 0.7em; padding: 0 3px; flex-shrink: 0; }
+        .cycle-arrow.is-past { opacity: 0.35; }
+        .cycle-wrap {
+            text-align: center; color: #333;
+            font-size: 0.7em; margin-top: 8px;
         }
-        .cycle-countdown {
-            text-align: center;
-            margin-top: 16px;
-            font-size: 1em;
-            font-weight: 600;
-        }
-        .cycle-countdown .number {
-            font-size: 1.3em;
-            font-weight: 800;
-        }
+        .cycle-countdown { text-align: center; margin-top: 16px; font-size: 1em; font-weight: 600; }
+        .cycle-countdown .number { font-size: 1.3em; font-weight: 800; }
         .cycle-countdown.now   { color: var(--green); }
         .cycle-countdown.soon  { color: var(--amber); }
         .cycle-countdown.later { color: var(--muted); }
@@ -254,6 +240,11 @@
         .player-calc {
             text-align: center; color: var(--muted);
             font-size: 0.78em; margin-top: 10px;
+            font-family: 'Courier New', monospace;
+        }
+        .debug-info {
+            text-align: center; color: #666;
+            font-size: 0.7em; margin-top: 6px;
             font-family: 'Courier New', monospace;
         }
         .game-link {
@@ -302,7 +293,7 @@
         <label for="myPlayer">Dein Platz (P):</label>
         <input type="number" id="myPlayer" min="0" max="19" value="0">
         <div class="rengo-info">
-            ⌊Z÷2⌋ mod N = P → Du bist dran
+            Farbe wird automatisch erkannt · ⌊Z÷2⌋ mod N = P → Du bist dran
         </div>
     </div>
 
@@ -320,9 +311,12 @@
 <script>
 const API = 'https://online-go.com/api/v1';
 
-let timer     = null;
-let playerId  = null;
-let prevMoves = {};
+let timer            = null;
+let playerId         = null;
+let playerName       = '';
+let prevMoves        = {};
+let cachedStates     = {};   // gameId → letzter bekannter state
+let cachedActiveGames = [];  // letzte bekannte Spielliste
 
 document.getElementById('username')
     .addEventListener('keydown', e => { if (e.key === 'Enter') search(); });
@@ -345,8 +339,14 @@ async function search() {
 
         if (!match) { showStatus(`Spieler „${name}" nicht gefunden.`, true); return; }
 
-        playerId  = match.id;
-        prevMoves = {};
+        playerId         = match.id;
+        playerName       = match.username.toLowerCase();
+        prevMoves        = {};
+        cachedStates     = {};
+        cachedActiveGames = [];
+
+        console.log('Spieler gefunden:', match.username, 'ID:', playerId);
+
         await loadGames();
         startTimer();
     } catch (err) { handleErr(err); }
@@ -355,93 +355,153 @@ async function search() {
 
 async function loadGames() {
     if (!playerId) return;
+
+    /* ── Spielliste laden (mit Fallback auf Cache) ── */
     try {
-        const full  = await api(`/players/${playerId}/full/`);
-        const games = full.active_games || [];
+        const full = await api(`/players/${playerId}/full/`);
+        cachedActiveGames = full.active_games || [];
+    } catch (err) {
+        console.warn('Full-API fehlgeschlagen, nutze Cache:', err);
+    }
 
-        if (!games.length) {
-            showStatus('Kein aktives Spiel gefunden.');
-            clearState(); stopTimer(); return;
-        }
+    const games = cachedActiveGames;
+    if (!games.length) {
+        showStatus('Kein aktives Spiel gefunden.');
+        clearState(); stopTimer(); return;
+    }
 
-        const entries = await Promise.all(
-            games.slice(0, 5).map(async g => {
-                try   { return { game: g, state: await api(`/games/${g.id}/state/`) }; }
-                catch { return { game: g, state: null }; }
-            })
-        );
-        render(entries);
-    } catch (err) { console.error('Refresh:', err); }
+    /* ── State pro Spiel laden (mit Fallback auf Cache) ── */
+    const entries = await Promise.all(
+        games.slice(0, 5).map(async g => {
+            try {
+                const state = await api(`/games/${g.id}/state/`);
+                cachedStates[g.id] = state;
+                return { game: g, state, cached: false };
+            } catch {
+                const fallback = cachedStates[g.id] || null;
+                return { game: g, state: fallback, cached: !!fallback };
+            }
+        })
+    );
+    render(entries);
 }
 
-function getTurnInfo(Z, N, P) {
-    if (typeof Z !== 'number') return { myTurn: false, imNext: false, dist: 0 };
-    const pos    = Math.floor(Z / 2) % N;
-    const dist   = (P - pos + N) % N;           // 0 = jetzt, 1 = nächster, etc.
-    const myTurn = dist === 0;
-    const imNext = dist === 1;
-    return { myTurn, imNext, dist, pos };
+/* ── Farbe erkennen (robust) ────────────────────── */
+function getColor(game) {
+    if (game.players?.black?.id != null && game.players.black.id == playerId) return 'black';
+    if (game.players?.white?.id != null && game.players.white.id == playerId) return 'white';
+    if (game.black == playerId) return 'black';
+    if (game.white == playerId) return 'white';
+    if (game.players?.black?.username?.toLowerCase() === playerName) return 'black';
+    if (game.players?.white?.username?.toLowerCase() === playerName) return 'white';
+    if (game.json?.players?.black?.id == playerId) return 'black';
+    if (game.json?.players?.white?.id == playerId) return 'white';
+    console.warn('Farbe nicht erkannt! Game:', game.id);
+    return null;
 }
 
-function buildCycleHTML(Z, N, P) {
-    if (typeof Z !== 'number') return '';
+/* ── Turn-Logik ─────────────────────────────────── */
+function getTurnInfo(Z, N, P, color) {
+    if (typeof Z !== 'number' || !color)
+        return { myTurn: false, imNext: false, dist: 0, currentSlot: 0, playerSlot: 0 };
 
-    const { pos, dist } = getTurnInfo(Z, N, P);
+    const totalSlots  = 2 * N;
+    const playerSlot  = (color === 'white') ? 2 * P + 1 : 2 * P;
+    const currentSlot = Z % totalSlots;
+    const dist        = (playerSlot - currentSlot + totalSlots) % totalSlots;
+
+    return {
+        myTurn:      dist === 0,
+        imNext:      dist === 1,
+        dist,
+        currentSlot,
+        playerSlot
+    };
+}
+
+/* ── Zyklus-Visualisierung (feste Positionen) ───── */
+function buildCycleHTML(Z, N, P, color) {
+    if (typeof Z !== 'number' || !color) return '';
+
+    const { dist, currentSlot, playerSlot } = getTurnInfo(Z, N, P, color);
+    const totalSlots = 2 * N;
+    const colorName  = (color === 'white') ? 'Weiß' : 'Schwarz';
 
     let slots = '';
-    for (let i = 0; i < N; i++) {
-        const isCurrent = (i === pos);
-        const isMine    = (i === P);
-        const isNextMine = (!isCurrent && isMine && dist === 1);
+
+    for (let i = 0; i < totalSlots; i++) {
+        const isBlack   = (i % 2 === 0);
+        const teamIdx   = Math.floor(i / 2);
+        const isCurrent = (i === currentSlot);
+        const isMine    = (i === playerSlot);
+
+        /* Vergangene Slots (im aktuellen Zyklus bereits gespielt) */
+        const slotDist = (i - currentSlot + totalSlots) % totalSlots;
+        const isPast   = (slotDist !== 0) && (slotDist > totalSlots - currentSlot + i)
+            ? false : (i < currentSlot && i !== currentSlot);
+        /* Einfacher: alles links vom current das nicht current ist */
+        const isBeforeCurrent = (slotDist > 0 && slotDist > totalSlots / 2)
+            || (!isCurrent && i < currentSlot);
+
+        const isNextMine = isMine && dist === 1;
 
         let cls = 'cycle-slot';
-        if (isCurrent)  cls += ' is-current';
-        if (isMine)     cls += ' is-mine';
-        if (isNextMine) cls += ' is-next-mine';
+        if (isCurrent)              cls += ' is-current';
+        if (isMine)                 cls += ' is-mine';
+        if (isNextMine)             cls += ' is-next-mine';
+        if (isBeforeCurrent)        cls += ' is-past';
 
         let label = '';
         if (isMine && isCurrent) label = '<span class="cycle-slot-label du">▼ DU</span>';
         else if (isMine)         label = '<span class="cycle-slot-label du">DU</span>';
         else if (isCurrent)      label = '<span class="cycle-slot-label jetzt">▼</span>';
 
-        slots += `<div class="${cls}">${label}${i}</div>`;
-        if (i < N - 1) slots += '<div class="cycle-arrow">→</div>';
+        const prefix    = isBlack ? 'S' : 'W';
+        const slotLabel = `${prefix}${teamIdx}`;
+
+        slots += `<div class="${cls}">${label}${slotLabel}</div>`;
+        if (i < totalSlots - 1) {
+            const arrowPast = isBeforeCurrent && (i + 1 < currentSlot) ? ' is-past' : '';
+            slots += `<div class="cycle-arrow${arrowPast}">→</div>`;
+        }
     }
 
-    /* Countdown-Text */
     let cdClass, cdText;
     if (dist === 0) {
         cdClass = 'now';
         cdText  = '🟢 Jetzt!';
     } else if (dist === 1) {
         cdClass = 'soon';
-        cdText  = `🟡 Noch <span class="number">1</span> Runde (${1 * 2} Züge)`;
+        cdText  = '🟡 Noch <span class="number">1</span> Zug!';
     } else {
         cdClass = 'later';
-        cdText  = `⏳ Noch <span class="number">${dist}</span> Runden (${dist * 2} Züge)`;
+        cdText  = `⏳ Noch <span class="number">${dist}</span> Züge`;
     }
 
     return `
     <div class="cycle-container">
-        <div class="cycle-label">Rotations-Zyklus</div>
+        <div class="cycle-label">Zyklus · Du spielst ${colorName}</div>
         <div class="cycle-track">${slots}</div>
+        <div class="cycle-wrap">↩ wiederholt sich</div>
         <div class="cycle-countdown ${cdClass}">${cdText}</div>
     </div>`;
 }
 
+/* ── Rendern ────────────────────────────────────── */
 function render(entries) {
     const N = Math.max(1, parseInt(document.getElementById('numPlayers').value) || 1);
     const P = Math.max(0, parseInt(document.getElementById('myPlayer').value)  || 0);
 
     let html = '', anyMyTurn = false, anyImNext = false;
 
-    for (const { game, state } of entries) {
+    for (const { game, state, cached } of entries) {
         const Z     = state?.move_number ?? null;
         const black = game.players?.black?.username ?? '?';
         const white = game.players?.white?.username ?? '?';
         const size  = game.width || 19;
+        const color = getColor(game);
 
-        const { myTurn, imNext, dist, pos } = getTurnInfo(Z, N, P);
+        const { myTurn, imNext, dist } = getTurnInfo(Z, N, P, color);
         if (myTurn) anyMyTurn = true;
         if (imNext) anyImNext = true;
 
@@ -451,38 +511,49 @@ function render(entries) {
         const whoseTurn = (typeof Z === 'number') ? (Z % 2 === 0 ? 'Schwarz' : 'Weiß') : '?';
         const dotClass  = myTurn ? 'green' : imNext ? 'amber' : 'grey';
 
-        const calcText = (typeof Z === 'number')
-            ? `⌊${Z}÷2⌋ mod ${N} = ${pos} → Platz ${pos} ist dran${myTurn ? ' = DU ✅' : ''}`
+        const colorLabel = color === 'black' ? '⚫ Du = Schwarz'
+                         : color === 'white' ? '⚪ Du = Weiß'
+                         : '⚠️ Farbe unbekannt';
+        const blackMe = (color === 'black') ? ' <span class="is-me">Du</span>' : '';
+        const whiteMe = (color === 'white') ? ' <span class="is-me">Du</span>' : '';
+
+        const cachedBadge = cached ? '<span class="cached-badge">⚡ cached</span>' : '';
+
+        const calcText = (typeof Z === 'number' && color)
+            ? `Z=${Z} · Distanz: ${dist} Züge`
             : '';
 
-        const cycleHTML = buildCycleHTML(Z, N, P);
+        const cycleHTML = buildCycleHTML(Z, N, P, color);
+
+        const debugText = `ID: ${playerId} · black.id: ${game.players?.black?.id} · white.id: ${game.players?.white?.id} · color: ${color}`;
 
         html += `
         <div class="game-card">
             <div class="players">
                 <div class="player">
                     <div class="stone black"></div>
-                    <span>${esc(black)}</span>
+                    <span>${esc(black)}</span>${blackMe}
                 </div>
                 <span class="vs">vs</span>
                 <div class="player">
-                    <span>${esc(white)}</span>
+                    <span>${esc(white)}</span>${whiteMe}
                     <div class="stone white"></div>
                 </div>
             </div>
 
             <div class="move-display">
                 <div class="move-label">
-                    <span class="live-dot ${dotClass}"></span>Zug Nummer
+                    <span class="live-dot ${dotClass}"></span>Zug Nummer ${cachedBadge}
                 </div>
                 <div class="move-number ${changed ? 'bump' : ''}">${Z ?? '?'}</div>
             </div>
 
-            <div class="game-info">${size}×${size} · ${whoseTurn} am Zug</div>
+            <div class="game-info">${size}×${size} · ${whoseTurn} am Zug · ${colorLabel}</div>
 
             ${cycleHTML}
 
             <div class="player-calc">${calcText}</div>
+            <div class="debug-info">${esc(debugText)}</div>
 
             <a class="game-link" href="https://online-go.com/game/${game.id}"
                target="_blank" rel="noopener">↗ Spiel auf OGS öffnen</a>
