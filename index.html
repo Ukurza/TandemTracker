@@ -30,7 +30,7 @@
         body.my-turn { background: #052e16; }
         body.im-next { background: #1a1000; }
 
-        body.alarm-active { animation: alarmBlink 0.4s ease infinite; }
+        body.alarm-active { animation: alarmBlink 0.4s ease 4; }
         @keyframes alarmBlink {
             0%   { background: #052e16; }
             25%  { background: #0a4a28; }
@@ -38,7 +38,7 @@
             75%  { background: #052e16; }
             100% { background: #052e16; }
         }
-        body.alarm-active .tracker.state-now { animation: alarmCard 0.6s ease infinite; }
+        body.alarm-active .tracker.state-now { animation: alarmCard 0.6s ease 3; }
         @keyframes alarmCard {
             0%, 100% { box-shadow: 0 0 45px rgba(34,197,94,0.22); }
             50%      { box-shadow: 0 0 80px rgba(34,197,94,0.6), 0 0 120px rgba(34,197,94,0.3); }
@@ -148,7 +148,7 @@
             transition: all 0.3s; position: relative;
         }
         .tracker-row:hover .tracker-radio { border-color: #555; }
-        .tracker-row.is-you .tracker-radio { border-color: var(--green); background: var(--green); }
+        .tracker-row.is-you .tracker-radio { border-color: #666; background: #666; }
         .tracker-row.is-you .tracker-radio::after {
             content: ''; position: absolute;
             top: 50%; left: 50%; transform: translate(-50%, -50%);
@@ -174,7 +174,7 @@
             letter-spacing: 0.6px; padding: 3px 8px; border-radius: 5px;
             white-space: nowrap; flex-shrink: 0;
         }
-        .tracker-tag.you  { color: var(--green); background: rgba(34,197,94,0.13); }
+        .tracker-tag.waiting { color: #777; background: rgba(255,255,255,0.06); }
         .tracker-tag.turn { color: #052e16; background: var(--green); animation: pulse 1.4s ease infinite; }
         .tracker-tag.next { color: var(--amber); background: rgba(245,158,11,0.13); }
 
@@ -377,17 +377,14 @@ function wsConnect() {
         dbg('WS: connected ✓', 'ok');
         wsConnected = true;
         clearApiError();
-        // Try authenticating as guest/spectator
         dbg('WS: attempting unauthenticated identify…', 'ws');
         wsSend('authenticate', { device_id: 'tracker-' + Date.now() });
         wsSend('notification/connect', { player_id: 0 });
-        // Start ping keepalive
         clearInterval(wsPingTimer);
         wsPingTimer = setInterval(function() {
             wsSend('net/ping', { client: Date.now(), drift: 0, latency: 0 });
         }, 10000);
 
-        // Re-subscribe to games
         var gids = Object.keys(subscribedGames);
         if (gids.length) {
             dbg('WS: re-subscribing to ' + gids.length + ' games', 'ws');
@@ -405,7 +402,6 @@ function wsConnect() {
         clearInterval(wsPingTimer);
         updateConnectionUI();
 
-        // Reconnect after 3s
         clearTimeout(wsReconnectTimer);
         wsReconnectTimer = setTimeout(function() {
             if (playerId) {
@@ -422,18 +418,14 @@ function wsConnect() {
     ws.onmessage = function(e) {
         var raw = String(e.data);
 
-        // Log first 20 messages fully, then only game-related
         dbg('WS RX: ' + raw.substring(0, 250), 'evt');
 
-        // Handle pong
         if (raw.indexOf('net/pong') !== -1) return;
 
-        // Try to parse as JSON
         try {
             var msg = JSON.parse(raw);
             handleWsMessage(msg);
         } catch(err) {
-            // Might not be JSON — log it
             dbg('WS RX (non-JSON): ' + raw.substring(0, 200), 'warn');
         }
     };
@@ -449,9 +441,7 @@ function wsSend(command, data) {
 }
 
 function handleWsMessage(msg) {
-    // OGS protocol: messages are typically [event_name, data]
     if (!Array.isArray(msg)) {
-        // Could be an object — try to handle
         dbg('WS MSG (object): ' + JSON.stringify(msg).substring(0, 200), 'evt');
         return;
     }
@@ -459,14 +449,12 @@ function handleWsMessage(msg) {
     var event = msg[0];
     var data = msg[1];
 
-    // Game data events
     if (typeof event === 'string' && event.indexOf('game/') === 0) {
         handleGameEvent(event, data);
     }
 }
 
 function handleGameEvent(event, data) {
-    // Extract game ID from event name: "game/12345/move" → 12345
     var parts = event.split('/');
     if (parts.length < 3) return;
     var gid = parseInt(parts[1]);
@@ -561,7 +549,6 @@ function startPolling() {
     stopPolling();
     polling = true;
     currentInterval = getBackoffInterval();
-    // If WS is live, poll much less frequently (just as safety net)
     var interval = wsConnected ? 30000 : currentInterval;
     dbg('startPolling: every ' + interval + 'ms (ws=' + wsConnected + ')', 'ok');
     stateTimer = setInterval(function() { pollStates(); }, interval);
@@ -590,7 +577,6 @@ async function pollStates() {
         if (!games.length) return;
     }
 
-    // If WS is connected and we have cached states, skip REST
     if (wsConnected) {
         var allCached = games.slice(0, 5).every(function(g) { return !!cachedStates[g.id]; });
         if (allCached) {
@@ -644,7 +630,7 @@ async function refreshGameList() {
 }
 
 /* ── Alarm ──────────────────────────────────────── */
-var alarmOn = false, alarmPlaying = false, alarmInterval = null;
+var alarmOn = false, alarmPlaying = false, alarmTimeout = null;
 var audioCtx = null, wasMyTurn = false;
 
 function toggleAlarm() {
@@ -668,13 +654,19 @@ function playAlarmBurst() {
     setTimeout(function() { playBeep(880, 0.12, 0.15); }, 280);
 }
 function startAlarm() {
-    if (alarmPlaying) return; alarmPlaying = true;
+    if (alarmPlaying) return;
+    alarmPlaying = true;
     document.body.classList.add('alarm-active');
-    playAlarmBurst(); alarmInterval = setInterval(playAlarmBurst, 2400);
+    playAlarmBurst();
+    // Auto-stop after one burst + blink cycle
+    clearTimeout(alarmTimeout);
+    alarmTimeout = setTimeout(function() { stopAlarm(); }, 2000);
 }
 function stopAlarm() {
-    alarmPlaying = false; document.body.classList.remove('alarm-active');
-    clearInterval(alarmInterval); alarmInterval = null;
+    alarmPlaying = false;
+    document.body.classList.remove('alarm-active');
+    clearTimeout(alarmTimeout);
+    alarmTimeout = null;
 }
 function updateAlarm(t) {
     if (alarmOn && t && !wasMyTurn) startAlarm();
@@ -739,7 +731,7 @@ function renderTracker() {
                 var nm = teamNames[ti] || '', tag = '';
                 if (isCurr && isMine) tag = '<span class="tracker-tag turn">YOUR TURN</span>';
                 else if (isNext) tag = '<span class="tracker-tag next">NEXT</span>';
-                else if (isMine) tag = '<span class="tracker-tag you">YOU</span>';
+                else if (isMine) tag = '<span class="tracker-tag waiting">WAITING</span>';
                 h += '<div class="' + rc + '" onclick="selectPlayer(' + ti + ')"><div class="tracker-radio"></div><input class="tracker-name" type="text" data-tindex="' + ti + '" placeholder="Player ' + ti + '" value="' + esc(nm) + '" onclick="event.stopPropagation()" oninput="onNameInput(this)" />' + tag + '</div>';
             } else {
                 var oc = 'tracker-opp'; if (isCurr) oc += ' is-current';
@@ -750,7 +742,7 @@ function renderTracker() {
     } else {
         for (var j = 0; j < N; j++) {
             var isY = j === P, rc2 = 'tracker-row' + (isY ? ' is-you' : '');
-            var tag2 = isY ? '<span class="tracker-tag you">YOU</span>' : '';
+            var tag2 = isY ? '<span class="tracker-tag waiting">WAITING</span>' : '';
             h += '<div class="' + rc2 + '" onclick="selectPlayer(' + j + ')"><div class="tracker-radio"></div><input class="tracker-name" type="text" data-tindex="' + j + '" placeholder="Player ' + j + '" value="' + esc(teamNames[j] || '') + '" onclick="event.stopPropagation()" oninput="onNameInput(this)" />' + tag2 + '</div>';
         }
     }
@@ -802,7 +794,6 @@ async function search() {
         dbg('search: found ' + match.username + ' id=' + playerId, 'ok');
         if (!teamNames[myPlayerIndex]) teamNames[myPlayerIndex] = match.username;
 
-        // Fetch game list
         var full = await api('/players/' + playerId + '/full/');
         cachedActiveGames = full.active_games || [];
         dbg('search: ' + cachedActiveGames.length + ' active games', 'ok');
@@ -811,18 +802,14 @@ async function search() {
             showStatus('No active game found.'); return;
         }
 
-        // Connect WebSocket
         wsConnect();
 
-        // Subscribe to games
         cachedActiveGames.slice(0, 5).forEach(function(g) {
             wsSubscribeGame(g.id);
         });
 
-        // Fetch initial states via REST
         await pollStates();
 
-        // Start polling as fallback
         startPolling();
 
     } catch (err) {
