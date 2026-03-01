@@ -278,23 +278,20 @@
 </head>
 <body>
 
-    <h1>⚫⚪ OGS Live Tracker</h1>
-    <p class="subtitle">Verfolge laufende Go-Spiele in Echtzeit</p>
+    <h1>⚫⚪ OGS Tandem Tracker</h1>
+    <p class="subtitle">Keep track whose turn it is!</p>
 
     <div class="search-box">
         <input type="text" id="username"
-               placeholder="OGS Benutzername eingeben…" autocomplete="off">
+               placeholder="Enter OGS username..." autocomplete="off">
         <button id="searchBtn" onclick="search()">Suchen</button>
     </div>
 
     <div class="rengo-settings">
-        <label for="numPlayers">Spieler pro Team (N):</label>
+        <label for="numPlayers">Players per team:</label>
         <input type="number" id="numPlayers" min="1" max="20" value="2">
-        <label for="myPlayer">Dein Platz (P):</label>
+        <label for="myPlayer">Your position:</label>
         <input type="number" id="myPlayer" min="0" max="19" value="0">
-        <div class="rengo-info">
-            Farbe wird automatisch erkannt · ⌊Z÷2⌋ mod N = P → Du bist dran
-        </div>
     </div>
 
     <div class="options">
@@ -302,9 +299,9 @@
         <label for="autoRefresh">Auto-Refresh (alle 5 s)</label>
     </div>
 
-    <div class="turn-banner banner-myturn">🟢 DU BIST DRAN!</div>
-    <div class="turn-banner banner-next">🟡 MACH DICH BEREIT!</div>
-    <div class="turn-wait visible" id="turnWait">⏳ Warte auf deinen Zug…</div>
+    <div class="turn-banner banner-myturn">🟢 YOUR TURN!</div>
+    <div class="turn-banner banner-next">🟡 READY?</div>
+    <div class="turn-wait visible" id="turnWait">⏳ Wait for your turn...</div>
 
     <div id="results"></div>
 
@@ -425,7 +422,7 @@ function buildCycleHTML(Z, N, P, color) {
 
     const { dist, currentSlot, playerSlot } = getTurnInfo(Z, N, P, color);
     const totalSlots = 2 * N;
-    const colorName  = (color === 'white') ? 'Weiß' : 'Schwarz';
+    const colorName  = (color === 'white') ? 'White' : 'Black';
 
     let slots = '';
 
@@ -480,9 +477,7 @@ function buildCycleHTML(Z, N, P, color) {
 
     return `
     <div class="cycle-container">
-        <div class="cycle-label">Zyklus · Du spielst ${colorName}</div>
         <div class="cycle-track">${slots}</div>
-        <div class="cycle-wrap">↩ wiederholt sich</div>
         <div class="cycle-countdown ${cdClass}">${cdText}</div>
     </div>`;
 }
@@ -508,16 +503,16 @@ function render(entries) {
         const changed = (prevMoves[game.id] !== undefined && prevMoves[game.id] !== Z);
         prevMoves[game.id] = Z;
 
-        const whoseTurn = (typeof Z === 'number') ? (Z % 2 === 0 ? 'Schwarz' : 'Weiß') : '?';
+        const whoseTurn = (typeof Z === 'number') ? (Z % 2 === 0 ? 'Black' : 'White') : '?';
         const dotClass  = myTurn ? 'green' : imNext ? 'amber' : 'grey';
 
-        const colorLabel = color === 'black' ? '⚫ Du = Schwarz'
-                         : color === 'white' ? '⚪ Du = Weiß'
+        const colorLabel = color === 'black' ? '⚫ You are playing black ⚫'
+                         : color === 'white' ? '⚪ You are playing white ⚪'
                          : '⚠️ Farbe unbekannt';
         const blackMe = (color === 'black') ? ' <span class="is-me">Du</span>' : '';
         const whiteMe = (color === 'white') ? ' <span class="is-me">Du</span>' : '';
 
-        const cachedBadge = cached ? '<span class="cached-badge">⚡ cached</span>' : '';
+        const cachedBadge = cached ? '<span class="cached-badge">⚡ Lagging</span>' : '';
 
         const calcText = (typeof Z === 'number' && color)
             ? `Z=${Z} · Distanz: ${dist} Züge`
@@ -543,7 +538,7 @@ function render(entries) {
 
             <div class="move-display">
                 <div class="move-label">
-                    <span class="live-dot ${dotClass}"></span>Zug Nummer ${cachedBadge}
+                    <span class="live-dot ${dotClass}"></span>Move Number ${cachedBadge}
                 </div>
                 <div class="move-number ${changed ? 'bump' : ''}">${Z ?? '?'}</div>
             </div>
