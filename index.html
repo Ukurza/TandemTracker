@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OGS Live Tracker</title>
+    <style>
+        :root {
+            --bg: #0f0f1a;
+            --card: #1a1a2e;
+            --accent: #e94560;
+            --text: #eaeaea;
+            --muted: #888;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 40px 20px;
+        }
+        h1 { font-size: 2em; margin-bottom: 6px; }
+        .subtitle { color: var(--muted); margin-bottom: 32px; }
+        .search-box {
+            display: flex;
+            gap: 10px;
+            width: 100%;
+            max-width: 500px;
+            margin-bottom: 16px;
+        }
+        input[type="text"] {
+            flex: 1;
+            padding: 14px 18px;
+            border: 2px solid #2a2a4a;
+            border-radius: 10px;
+            background: var(--card);
+            color: var(--text);
+            font-size: 1em;
+            transition: border-color 0.3s;
+        }
+        input[type="text"]:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        button {
+            padding: 14px 28px;
+            background: var(--accent);
+            border: none;
+            border-radius: 10px;
+            color: white;
+            font-size: 1em;
+            cursor: pointer;
+            transition: background 0.3s, transform 0.1s;
+        }
+        button:hover { background: #c73652; }
+        button:active { transform: scale(0.97); }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .options {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 28px;
+            color: var(--muted);
+            font-size: 0.9em;
+        }
+        .options input[type="checkbox"] { accent-color: var(--accent); }
+        #results { width: 100%; max-width: 500px; }
+        .game-card {
+            background: var(--card);
+            border-radius: 14px;
+            padding: 28px;
+            margin-bottom: 16px;
+            border: 1px solid #2a2a4a;
+        }
+        .players {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+        }
+        .player {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 600;
+            font-size: 0.95em;
+        }
+        .stone {
+            width: 22px; height: 22px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        .stone.black {
+            background: radial-gradient(circle at 35% 35%, #555, #111);
+            border: 1px solid #333;
+        }
+        .stone.white {
+            background: radial-gradient(circle at 35% 35%, #fff, #ccc);
+            border: 1px solid #aaa;
+        }
+        .vs { color: var(--muted); font-size: 0.85em; }
+        .move-display { text-align: center; margin: 28px 0 16px; }
+        .move-label {
+            color: var(--muted);
+            font-size: 0.8em;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 8px;
+        }
+        .move-number {
+            font-size: 5em;
+            font-weight: 800;
+            color: var(--accent);
+            line-height: 1;
+        }
+        .move-number.bump { animation: bump 0.4s ease; }
+        @keyframes bump {
+            0%   { transform: scale(1); }
+            50%  { transform: scale(1.18); }
+            100% { transform: scale(1); }
+        }
+        .game-info {
+            text-align: center;
+            color: var(--muted);
+            font-size: 0.85em;
+            margin-top: 6px;
+        }
+        .game-link {
+            display: block;
+            text-align: center;
+            color: var(--accent);
+            text-decoration: none;
+            margin-top: 18px;
+            font-size: 0.95em;
+        }
+        .game-link:hover { opacity: 0.8; }
+        .status-msg {
+            text-align: center;
+            padding: 28px;
+            color: var(--muted);
+            line-height: 1.6;
+        }
+        .status-msg.error { color: var(--accent); }
+        .live-dot {
+            display: inline-block;
+            width: 8px; height: 8px;
+            background: #4ade80;
+            border-radius: 50%;
+            margin-right: 4px;
+            animation: blink 1.5s infinite;
+        }
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50%      { opacity: 0.3; }
+        }
+        .refresh-info {
+            text-align: center;
+            color: var(--muted);
+            font-size: 0.75em;
+            margin-top: 14px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>⚫⚪ OGS Live Tracker</h1>
+    <p class="subtitle">Verfolge laufende Go-Spiele in Echtzeit</p>
+
+    <div class="search-box">
+        <input type="text" id="username"
+               placeholder="OGS Benutzername eingeben…" autocomplete="off">
+        <button id="searchBtn" onclick="search()">Suchen</button>
+    </div>
+
+    <div class="options">
+        <input type="checkbox" id="autoRefresh" checked>
+        <label for="autoRefresh">Auto-Refresh (alle 5 s)</label>
+    </div>
+
+    <div id="results"></div>
+
+<script>
+const API  = 'https://online-go.com/api/v1';
+const COLS = 'ABCDEFGHJKLMNOPQRST';   // Go-Spalten (ohne I)
+
+let timer      = null;
+let playerId   = null;
+let prevMoves  = {};                   // gameId → letzter bekannter moveCount
+
+/* ── Eingabe ────────────────────────────────────── */
+document.getElementById('username')
+    .addEventListener('keydown', e => { if (e.key === 'Enter') search(); });
+
+/* ── Suche starten ──────────────────────────────── */
+async function search() {
+    const name = document.getElementById('username').value.trim();
+    if (!name) return;
+
+    const btn = document.getElementById('searchBtn');
+    btn.disabled = true;
+    btn.textContent = '…';
+    stopTimer();
+    showStatus('🔍 Suche Spieler…');
+
+    try {
+        /* 1 ─ Spieler finden */
+        const pData = await api(`/players/?username=${enc(name)}`);
+        const match = pData.results?.find(
+            p => p.username.toLowerCase() === name.toLowerCase()
+        ) || pData.results?.[0];
+
+        if (!match) { showStatus(`Spieler „${name}" nicht gefunden.`, true); return; }
+
+        playerId  = match.id;
+        prevMoves = {};
+
+        /* 2 ─ Spiele laden */
+        await loadGames();
+        startTimer();
+
+    } catch (err) { handleErr(err); }
+      finally     { btn.disabled = false; btn.textContent = 'Suchen'; }
+}
+
+/* ── Aktive Spiele laden ────────────────────────── */
+async function loadGames() {
+    if (!playerId) return;
+    try {
+        const gData = await api(
+            `/players/${playerId}/games/?ended__isnull=true&ordering=-started`
+        );
+        const games = gData.results || [];
+
+        if (!games.length) {
+            showStatus('Kein aktives Spiel gefunden für diesen Spieler.');
+            stopTimer();
+            return;
+        }
+
+        /* Detail-Daten holen (max. 5 Spiele) */
+        const details = [];
+        for (const g of games.slice(0, 5)) {
+            try   { details.push(await api(`/games/${g.id}`)); }
+            catch { details.push(g); }
+        }
+        render(details);
+
+    } catch (err) { console.error('Refresh-Fehler:', err); }
+}
+
+/* ── Rendern ────────────────────────────────────── */
+function render(games) {
+    let html = '';
+
+    for (const g of games) {
+        let gd = g.gamedata;
+        if (typeof gd === 'string') gd = JSON.parse(gd);
+
+        const moves     = gd?.moves || [];
+        const count     = moves.length;
+        const size      = g.width || 19;
+        const black     = g.players?.black?.username ?? '?';
+        const white     = g.players?.white?.username ?? '?';
+
+        /* letzter Zug als Koordinate */
+        let lastStr = '';
+        if (moves.length) {
+            const [x, y] = moves[moves.length - 1];
+            lastStr = (x >= 0 && y >= 0)
+                ? `${COLS[x]}${size - y}`
+                : 'Pass';
+        }
+
+        /* Animation wenn neuer Zug */
+        const changed = (prevMoves[g.id] !== undefined && prevMoves[g.id] !== count);
+        prevMoves[g.id] = count;
+
+        const turn = count % 2 === 0 ? 'Schwarz' : 'Weiß';
+
+        html += `
+        <div class="game-card">
+            <div class="players">
+                <div class="player">
+                    <div class="stone black"></div>
+                    <span>${esc(black)}</span>
+                </div>
+                <span class="vs">vs</span>
+                <div class="player">
+                    <span>${esc(white)}</span>
+                    <div class="stone white"></div>
+                </div>
+            </div>
+
+            <div class="move-display">
+                <div class="move-label"><span class="live-dot"></span>Zug Nummer</div>
+                <div class="move-number ${changed ? 'bump' : ''}">${count}</div>
+            </div>
+
+            <div class="game-info">
+                ${size}×${size}
+                ${lastStr ? ` · Letzter Zug: <strong>${lastStr}</strong>` : ''}
+                · ${turn} am Zug
+            </div>
+
+            <a class="game-link" href="https://online-go.com/game/${g.id}"
+               target="_blank" rel="noopener">↗ Spiel auf OGS öffnen</a>
+        </div>`;
+    }
+
+    html += `<div class="refresh-info">Aktualisiert: ${new Date().toLocaleTimeString('de-DE')}</div>`;
+    document.getElementById('results').innerHTML = html;
+}
+
+/* ── Helfer ─────────────────────────────────────── */
+async function api(path) {
+    const r = await fetch(API + path);
+    if (!r.ok) throw new Error(`API-Fehler ${r.status}`);
+    return r.json();
+}
+
+function startTimer() {
+    stopTimer();
+    timer = setInterval(() => {
+        if (document.getElementById('autoRefresh').checked) loadGames();
+    }, 5000);
+}
+function stopTimer() { clearInterval(timer); timer = null; }
+
+function showStatus(msg, err) {
+    document.getElementById('results').innerHTML =
+        `<div class="status-msg ${err ? 'error' : ''}">${msg}</div>`;
+}
+function handleErr(e) {
+    console.error(e);
+    showStatus(e instanceof TypeError
+        ? '⚠️ Netzwerk-/CORS-Fehler – versuche die Seite über einen Webserver (z.B. GitHub Pages) zu öffnen.'
+        : '❌ ' + e.message, true);
+}
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function enc(s) { return encodeURIComponent(s); }
+</script>
+</body>
+</html>
