@@ -575,6 +575,7 @@ function handleGameEvent(event, data) {
             renderFromCache();
         }
     }
+    else if (type === 'clock') {
         dbg('WS clock gid=' + gid, 'evt');
     }
     else {
