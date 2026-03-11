@@ -169,6 +169,19 @@
         .tracker-row.is-current.is-you .tracker-name { color: #4ade80; }
         .tracker-row.is-next .tracker-name { color: var(--amber); }
 
+        .row-link-btn {
+            width: 22px; height: 22px; border-radius: 5px; flex-shrink: 0;
+            background: transparent; border: 1px solid transparent;
+            color: #2a2a4a; font-size: 0.8em; cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            padding: 0; opacity: 0; transition: opacity 0.2s, color 0.2s, border-color 0.2s, background 0.2s;
+            line-height: 1;
+        }
+        .tracker-row:hover .row-link-btn { opacity: 1; color: #444; border-color: #2a2a4a; }
+        .row-link-btn:hover { background: rgba(255,255,255,0.06) !important; color: #888 !important; border-color: #3a3a5a !important; }
+        .row-link-btn.did-copy { opacity: 1; color: var(--green) !important; border-color: rgba(34,197,94,0.3) !important; background: rgba(34,197,94,0.07) !important; }
+        .row-link-btn:active { transform: scale(0.88); }
+
         .tracker-tag {
             font-size: 0.58em; font-weight: 700; text-transform: uppercase;
             letter-spacing: 0.6px; padding: 3px 8px; border-radius: 5px;
@@ -248,6 +261,46 @@
             80% { transform: rotate(-8deg); } 100% { transform: rotate(0); }
         }
 
+        .share-row {
+            display: flex; align-items: center; gap: 8px;
+            width: 100%; max-width: 500px; margin-bottom: 18px;
+        }
+        .share-url-box {
+            flex: 1; display: flex; align-items: center; gap: 0;
+            background: var(--card); border: 1.5px solid #2a2a4a;
+            border-radius: 10px; overflow: hidden; transition: border-color 0.3s;
+        }
+        .share-url-box:focus-within { border-color: #3a3a6a; }
+        .share-url-input {
+            flex: 1; padding: 10px 14px; background: transparent;
+            border: none; color: #666; font-size: 0.72em;
+            font-family: 'Courier New', monospace;
+            outline: none; white-space: nowrap; overflow: hidden;
+            text-overflow: ellipsis; cursor: default;
+            user-select: all;
+        }
+        .copy-btn {
+            padding: 10px 16px; background: rgba(255,255,255,0.04);
+            border: none; border-left: 1.5px solid #2a2a4a;
+            color: #666; font-size: 0.72em; font-weight: 700;
+            cursor: pointer; letter-spacing: 0.5px;
+            text-transform: uppercase; transition: all 0.2s;
+            white-space: nowrap; border-radius: 0;
+        }
+        .copy-btn:hover { background: rgba(255,255,255,0.09); color: var(--text); }
+        .copy-btn.copied { color: var(--green); background: rgba(34,197,94,0.08); }
+        .copy-btn:active { transform: none; }
+
+        .toast {
+            position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%) translateY(16px);
+            background: #1e2e1e; border: 1px solid rgba(34,197,94,0.3);
+            color: var(--green); font-size: 0.8em; font-weight: 600;
+            padding: 10px 20px; border-radius: 10px; pointer-events: none;
+            opacity: 0; transition: opacity 0.2s, transform 0.2s;
+            z-index: 200; white-space: nowrap;
+        }
+        .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
         .debug-toggle {
             position: fixed; bottom: 10px; right: 10px;
             width: 28px; height: 28px; border-radius: 6px;
@@ -313,6 +366,8 @@
         </div>
     </div>
 
+    <div class="toast" id="toast">✓ Link copied!</div>
+
     <div class="debug-toggle" onclick="toggleDebug()">🐛</div>
     <div class="debug-panel" id="debugPanel">
         <div class="debug-header">
@@ -349,6 +404,39 @@ var cachedStates = {}, cachedActiveGames = [];
 var lastEntries = [], teamNames = ['', ''];
 var numPlayers = 2, myPlayerIndex = 0, lastApiError = null;
 var prevMoves = {};
+
+/* ── URL Params ─────────────────────────────────── */
+(function initFromURL() {
+    var p = new URLSearchParams(window.location.search);
+    var n = parseInt(p.get('n'));
+    if (n >= 1 && n <= 20) numPlayers = n;
+    var me = parseInt(p.get('me'));
+    if (!isNaN(me) && me >= 0 && me < numPlayers) myPlayerIndex = me;
+    var names = p.get('names');
+    if (names) {
+        var parts = names.split(',').map(function(s) { return decodeURIComponent(s); });
+        while (teamNames.length < numPlayers) teamNames.push('');
+        for (var i = 0; i < parts.length && i < numPlayers; i++) teamNames[i] = parts[i];
+    }
+    var user = p.get('user');
+    if (user) {
+        document.getElementById('username').value = user;
+        setTimeout(function() { search(); }, 100);
+    }
+})();
+
+function syncURL() {
+    var p = new URLSearchParams();
+    var uv = document.getElementById('username').value.trim();
+    if (uv) p.set('user', uv);
+    if (numPlayers !== 2) p.set('n', numPlayers);
+    if (myPlayerIndex !== 0) p.set('me', myPlayerIndex);
+    var nonEmpty = teamNames.slice(0, numPlayers).some(function(n) { return n.trim(); });
+    if (nonEmpty) p.set('names', teamNames.slice(0, numPlayers).map(function(n) { return encodeURIComponent(n || ''); }).join(','));
+    var base = window.location.pathname;
+    var qs = p.toString();
+    history.replaceState(null, '', qs ? base + '?' + qs : base);
+}
 
 /* ── WebSocket ──────────────────────────────────── */
 var ws = null;
@@ -686,15 +774,46 @@ function renderApiError() {
 }
 
 /* ── Tracker UI ─────────────────────────────────── */
-function selectPlayer(i) { myPlayerIndex = i; if (lastEntries.length) render(lastEntries); else renderTracker(); }
+function selectPlayer(i) { myPlayerIndex = i; if (lastEntries.length) render(lastEntries); else renderTracker(); syncURL(); }
 function changeCount(d) {
     numPlayers = Math.max(1, Math.min(20, numPlayers + d));
     if (myPlayerIndex >= numPlayers) myPlayerIndex = numPlayers - 1;
     while (teamNames.length < numPlayers) teamNames.push('');
     teamNames.length = numPlayers;
     if (lastEntries.length) render(lastEntries); else renderTracker();
+    syncURL();
 }
-function onNameInput(el) { teamNames[parseInt(el.dataset.tindex)] = el.value; }
+function onNameInput(el) { teamNames[parseInt(el.dataset.tindex)] = el.value; syncURL(); }
+
+function buildPlayerLink(playerIndex) {
+    var p = new URLSearchParams();
+    var uv = document.getElementById('username').value.trim();
+    if (uv) p.set('user', uv);
+    if (numPlayers !== 2) p.set('n', numPlayers);
+    p.set('me', playerIndex);
+    var nonEmpty = teamNames.slice(0, numPlayers).some(function(n) { return n.trim(); });
+    if (nonEmpty) p.set('names', teamNames.slice(0, numPlayers).map(function(n) { return encodeURIComponent(n || ''); }).join(','));
+    return window.location.origin + window.location.pathname + '?' + p.toString();
+}
+
+var rowCopyTimers = {};
+function copyPlayerLink(playerIndex, btn) {
+    var url = buildPlayerLink(playerIndex);
+    navigator.clipboard.writeText(url).then(function() {
+        btn.classList.add('did-copy');
+        btn.innerHTML = '✓';
+        clearTimeout(rowCopyTimers[playerIndex]);
+        rowCopyTimers[playerIndex] = setTimeout(function() {
+            btn.classList.remove('did-copy');
+            btn.innerHTML = linkIcon;
+        }, 1800);
+    }).catch(function() {
+        var ta = document.createElement('textarea');
+        ta.value = url; document.body.appendChild(ta); ta.select();
+        document.execCommand('copy'); document.body.removeChild(ta);
+    });
+}
+var linkIcon = '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 9.5a4 4 0 0 0 5.657 0l2-2a4 4 0 0-5.657-5.657L7.086 3.257"/><path d="M9.5 6.5a4 4 0 0 0-5.657 0l-2 2a4 4 0 0 0 5.657 5.657L8.914 12.743"/></svg>';
 
 function renderTracker() {
     var N = numPlayers, P = myPlayerIndex, c = document.getElementById('tracker');
@@ -732,7 +851,7 @@ function renderTracker() {
                 if (isCurr && isMine) tag = '<span class="tracker-tag turn">YOUR TURN</span>';
                 else if (isNext) tag = '<span class="tracker-tag next">NEXT</span>';
                 else if (isMine) tag = '<span class="tracker-tag waiting">WAITING</span>';
-                h += '<div class="' + rc + '" onclick="selectPlayer(' + ti + ')"><div class="tracker-radio"></div><input class="tracker-name" type="text" data-tindex="' + ti + '" placeholder="Player ' + ti + '" value="' + esc(nm) + '" onclick="event.stopPropagation()" oninput="onNameInput(this)" />' + tag + '</div>';
+                h += '<div class="' + rc + '" onclick="selectPlayer(' + ti + ')"><div class="tracker-radio"></div><input class="tracker-name" type="text" data-tindex="' + ti + '" placeholder="Player ' + ti + '" value="' + esc(nm) + '" onclick="event.stopPropagation()" oninput="onNameInput(this)" />' + tag + '<button class="row-link-btn" title="Copy link for this player" onclick="event.stopPropagation();copyPlayerLink(' + ti + ',this)">' + linkIcon + '</button></div>';
             } else {
                 var oc = 'tracker-opp'; if (isCurr) oc += ' is-current';
                 var st = isB ? '⚫' : '⚪', lb = isCurr ? st + ' playing' : st;
@@ -743,7 +862,7 @@ function renderTracker() {
         for (var j = 0; j < N; j++) {
             var isY = j === P, rc2 = 'tracker-row' + (isY ? ' is-you' : '');
             var tag2 = isY ? '<span class="tracker-tag waiting">WAITING</span>' : '';
-            h += '<div class="' + rc2 + '" onclick="selectPlayer(' + j + ')"><div class="tracker-radio"></div><input class="tracker-name" type="text" data-tindex="' + j + '" placeholder="Player ' + j + '" value="' + esc(teamNames[j] || '') + '" onclick="event.stopPropagation()" oninput="onNameInput(this)" />' + tag2 + '</div>';
+            h += '<div class="' + rc2 + '" onclick="selectPlayer(' + j + ')"><div class="tracker-radio"></div><input class="tracker-name" type="text" data-tindex="' + j + '" placeholder="Player ' + j + '" value="' + esc(teamNames[j] || '') + '" onclick="event.stopPropagation()" oninput="onNameInput(this)" />' + tag2 + '<button class="row-link-btn" title="Copy link for this player" onclick="event.stopPropagation();copyPlayerLink(' + j + ',this)">' + linkIcon + '</button></div>';
         }
     }
     h += '</div>';
@@ -793,6 +912,7 @@ async function search() {
         prevMoves = {}; cachedStates = {}; cachedActiveGames = []; lastEntries = [];
         dbg('search: found ' + match.username + ' id=' + playerId, 'ok');
         if (!teamNames[myPlayerIndex]) teamNames[myPlayerIndex] = match.username;
+        syncURL();
 
         var full = await api('/players/' + playerId + '/full/');
         cachedActiveGames = full.active_games || [];
