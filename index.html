@@ -563,7 +563,18 @@ function handleGameEvent(event, data) {
         cachedStates[gid] = Object.assign({}, cachedStates[gid] || {}, { move_number: mn2 });
         renderFromCache();
     }
-    else if (type === 'clock') {
+    else if (type === 'undo_requested') {
+        dbg('WS undo_requested gid=' + gid + ' move=' + (data.move_number || '?'), 'warn');
+    }
+    else if (type === 'undo_accepted') {
+        var undoMove = typeof data.move_number === 'number' ? data.move_number : null;
+        if (undoMove !== null) {
+            dbg('WS undo_accepted gid=' + gid + ' reverting to move=' + undoMove, 'ok');
+            cachedStates[gid] = Object.assign({}, cachedStates[gid] || {}, { move_number: undoMove });
+            wasMyTurn = false; // force alarm re-trigger if it's now our turn
+            renderFromCache();
+        }
+    }
         dbg('WS clock gid=' + gid, 'evt');
     }
     else {
