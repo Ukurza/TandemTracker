@@ -949,7 +949,7 @@ async function search() {
         setInputState(null);
 
         if (!cachedActiveGames.length) {
-            showStatus('✓ Found <strong>' + esc(match.username) + '</strong> — waiting for an active game…');
+            showStatus('✓ Found <strong>' + esc(match.username) + '</strong> — waiting for an active game… <span id="waitCountdown">10</span>s');
             startWaitingForGame();
             return;
         }
@@ -963,9 +963,19 @@ async function search() {
     }
 }
 
+var waitingCountdown = null;
+
 function startWaitingForGame() {
     stopWaiting();
-    waitingTimer = setInterval(async function() {
+    var INTERVAL = 10;
+    var remaining = INTERVAL;
+
+    function updateCountdown() {
+        var el = document.getElementById('waitCountdown');
+        if (el) el.textContent = remaining;
+    }
+
+    async function doCheck() {
         if (!playerId) { stopWaiting(); return; }
         dbg('waitingForGame: checking…', 'info');
         try {
@@ -975,11 +985,33 @@ function startWaitingForGame() {
                 dbg('waitingForGame: game found!', 'ok');
                 stopWaiting();
                 activateGame();
+                return;
             }
         } catch(err) {
             dbg('waitingForGame: error ' + err.message, 'err');
         }
-    }, 10000);
+        remaining = INTERVAL;
+        updateCountdown();
+    }
+
+    waitingCountdown = setInterval(function() {
+        remaining--;
+        if (remaining <= 0) {
+            remaining = 0;
+            updateCountdown();
+            doCheck();
+        } else {
+            updateCountdown();
+        }
+    }, 1000);
+
+    waitingTimer = true; // mark as active so stopWaiting knows
+}
+
+function stopWaiting() {
+    clearInterval(waitingCountdown);
+    waitingCountdown = null;
+    waitingTimer = null;
 }
 
 function activateGame() {
