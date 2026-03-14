@@ -578,6 +578,13 @@ function handleGameEvent(event, data) {
     else if (type === 'clock') {
         dbg('WS clock gid=' + gid, 'evt');
     }
+    else if (type === 'phase') {
+        dbg('WS phase gid=' + gid + ' phase=' + (data || '?'), 'warn');
+        if (data === 'finished') {
+            dbg('WS: game ' + gid + ' finished, refreshing game list…', 'warn');
+            gameOver();
+        }
+    }
     else {
         dbg('WS game event: ' + type + ' gid=' + gid, 'evt');
     }
@@ -721,12 +728,19 @@ async function refreshGameList() {
         cachedActiveGames = full.active_games || [];
         dbg('refreshGameList: ' + cachedActiveGames.length + ' games', 'ok');
         if (!cachedActiveGames.length) {
-            showStatus('No active game found.');
-            clearState(); stopPolling();
+            gameOver();
         }
     } catch (err) {
         dbg('refreshGameList failed: ' + err.message, 'err');
     }
+}
+
+function gameOver() {
+    var username = document.getElementById('username').value.trim();
+    stopPolling(); wsDisconnect(); clearState();
+    cachedActiveGames = []; cachedStates = {}; lastEntries = [];
+    showStatus('✓ Game ended — waiting for a new game… <span id="waitCountdown">10</span>s');
+    startWaitingForGame();
 }
 
 /* ── Alarm ──────────────────────────────────────── */
