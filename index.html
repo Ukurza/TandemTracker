@@ -361,6 +361,78 @@
         .debug-entry.log-err  { color: #c55; }
         .debug-entry.log-ws   { color: #88c; }
         .debug-entry.log-evt  { color: #a8d; }
+
+        /* ── Clock Blame ── */
+        .blame-card {
+            width: 100%; max-width: 500px;
+            background: var(--card); border: 2px solid #2a2a4a;
+            border-radius: 18px; padding: 24px 22px;
+            margin-bottom: 20px;
+        }
+        .blame-header {
+            display: flex; justify-content: space-between; align-items: baseline;
+            margin-bottom: 4px;
+        }
+        .blame-title {
+            font-size: 0.7em; text-transform: uppercase;
+            letter-spacing: 2.5px; color: var(--muted); font-weight: 700;
+        }
+        .blame-game-link {
+            font-size: 0.7em; color: var(--accent); text-decoration: none; opacity: 0.7;
+        }
+        .blame-game-link:hover { opacity: 1; }
+        .blame-meta {
+            font-size: 0.68em; color: #3a3a5a; margin-bottom: 18px; letter-spacing: 0.5px;
+        }
+        .blame-rows { display: flex; flex-direction: column; gap: 10px; }
+        .blame-row {
+            padding: 13px 16px; border-radius: 12px;
+            background: rgba(255,255,255,0.02);
+            border: 1.5px solid transparent;
+        }
+        .blame-row.is-me {
+            border-color: rgba(255,255,255,0.07);
+            background: rgba(255,255,255,0.03);
+        }
+        .blame-row-top {
+            display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+        }
+        .blame-name {
+            flex: 1; font-weight: 600; font-size: 0.92em; color: var(--text);
+        }
+        .blame-row.is-me .blame-name { color: #4ade80; }
+        .blame-moves {
+            font-size: 0.72em; color: #3a3a5a; white-space: nowrap;
+        }
+        .blame-stats { display: flex; gap: 10px; }
+        .blame-stat-block { flex: 1; }
+        .blame-stat-label {
+            font-size: 0.6em; text-transform: uppercase; letter-spacing: 1px;
+            color: #3a3a5a; font-weight: 700; margin-bottom: 4px;
+        }
+        .blame-stat-value {
+            font-size: 0.82em; font-weight: 600; color: var(--muted); margin-bottom: 5px;
+        }
+        .blame-stat-value.highlight { color: var(--amber); }
+        .blame-bar-track {
+            height: 4px; border-radius: 2px; background: rgba(255,255,255,0.05); overflow: hidden;
+        }
+        .blame-bar-fill {
+            height: 100%; border-radius: 2px;
+            background: #2a4a3a; transition: width 0.6s ease;
+        }
+        .blame-bar-fill.warn { background: var(--amber); }
+        .blame-pips { display: flex; gap: 3px; margin-top: 5px; }
+        .blame-pip {
+            flex: 1; height: 4px; border-radius: 2px;
+            background: rgba(255,255,255,0.05);
+        }
+        .blame-pip.used { background: var(--amber); }
+        .blame-pip.free { background: #22553a; }
+        .blame-computing {
+            text-align: center; padding: 22px; color: #333;
+            font-size: 0.8em; letter-spacing: 0.5px;
+        }
     </style>
 </head>
 <body>
@@ -374,6 +446,7 @@
 
     <div id="apiError"></div>
     <div id="tracker" class="tracker"></div>
+    <div id="blame"></div>
     <div id="results"></div>
 
     <div class="footer-row">
@@ -651,9 +724,14 @@ function handleGameEvent(event, data) {
         var mn = 0;
         if (typeof data.move_number === 'number') mn = data.move_number;
         else if (Array.isArray(data.moves)) mn = data.moves.length;
-        dbg('WS gamedata gid=' + gid + ' move=' + mn, 'ok');
+        dbg('WS gamedata gid=' + gid + ' move=' + mn + ' phase=' + (data.phase || '?'), 'ok');
         cachedStates[gid] = Object.assign({}, cachedStates[gid] || {}, { move_number: mn });
-        renderFromCache();
+        if (data.phase === 'finished') {
+            dbg('WS: game ' + gid + ' finished (via gamedata), triggering gameOver', 'warn');
+            gameOver();
+        } else {
+            renderFromCache();
+        }
     } else if (type === 'move') {
         var prev = cachedStates[gid] ? (cachedStates[gid].move_number || 0) : 0;
         var mn2 = (typeof data.move_number === 'number') ? data.move_number : prev + 1;
@@ -673,11 +751,13 @@ function handleGameEvent(event, data) {
     } else if (type === 'clock') {
         dbg('WS clock gid=' + gid, 'evt');
     } else if (type === 'phase') {
-        dbg('WS phase gid=' + gid + ' phase=' + (data || '?'), 'warn');
-        if (data === 'finished') {
-            dbg('WS: game ' + gid + ' finished, refreshing game list…', 'warn');
+        var phase = (typeof data === 'string') ? data : (data && data.phase) ? data.phase : '';
+        dbg('WS phase gid=' + gid + ' phase=' + (phase || '?'), 'warn');
+        if (phase === 'finished') {
+            dbg('WS: game ' + gid + ' finished (phase event), triggering gameOver', 'warn');
             gameOver();
         }
+        // 'stone removal' etc. are intermediate — ignore, game isn't over yet
     } else {
         dbg('WS game event: ' + type + ' gid=' + gid, 'evt');
     }
@@ -790,11 +870,248 @@ async function refreshGameList() {
     }
 }
 
-function gameOver() {
+var gameOverInProgress = false;
+
+async function gameOver() {
+    if (gameOverInProgress) { dbg('gameOver: already in progress, skipping', 'warn'); return; }
+    gameOverInProgress = true;
+    var gamesSnapshot = cachedActiveGames.slice();
     stopPolling(); wsDisconnect(); clearState();
     cachedActiveGames = []; cachedStates = {}; lastEntries = [];
+
+    if (gamesSnapshot.length) {
+        showBlameComputing();
+        try {
+            var blameList = await Promise.all(gamesSnapshot.slice(0, 5).map(computeClockBlame));
+            blameList = blameList.filter(Boolean);
+            renderClockBlame(blameList);
+        } catch(e) {
+            dbg('gameOver blame error: ' + e.message, 'err');
+            clearBlame();
+        }
+    }
+
     showStatus('✔ Game ended — waiting for a new game… <span id="waitCountdown">10</span>s');
+    gameOverInProgress = false;
     startWaitingForGame();
+}
+
+/* ── Clock Blame ────────────────────────────────── */
+function showBlameComputing() {
+    document.getElementById('blame').innerHTML = '<div class="blame-computing">⏱ Computing clock blame…</div>';
+}
+function clearBlame() {
+    document.getElementById('blame').innerHTML = '';
+}
+
+function fmtSec(s) {
+    s = Math.max(0, Math.round(s));
+    if (s < 60) return s + 's';
+    var m = Math.floor(s / 60), r = s % 60;
+    if (m < 60) return m + 'm' + (r ? ' ' + r + 's' : '');
+    var h = Math.floor(m / 60); m = m % 60;
+    return h + 'h' + (m ? ' ' + m + 'm' : '');
+}
+
+async function computeClockBlame(game) {
+    try {
+        dbg('clockBlame: fetching gid=' + game.id, 'info');
+        var r = await api('/games/' + game.id + '/');
+
+        // Parse time control
+        var tcp = r.time_control_parameters;
+        if (typeof tcp === 'string') { try { tcp = JSON.parse(tcp); } catch(e2) { tcp = {}; } }
+        tcp = tcp || {};
+        dbg('clockBlame gid=' + game.id + ' raw tcp: ' + JSON.stringify(tcp).substring(0, 300), 'info');
+        var system        = tcp.system || tcp.time_control || 'byoyomi';
+        var mainTime      = typeof tcp.initial_time   === 'number' ? tcp.initial_time
+                          : typeof tcp.main_time      === 'number' ? tcp.main_time : 0;
+        var periodTime    = typeof tcp.period_time    === 'number' ? tcp.period_time  : 30;
+        var numPer        = typeof tcp.periods        === 'number' ? tcp.periods      : 5;
+        var timeIncrement = typeof tcp.time_increment === 'number' ? tcp.time_increment : 0;
+        var maxTime       = typeof tcp.max_time       === 'number' ? tcp.max_time : Infinity;
+        var isByoyomi     = (system === 'byoyomi');
+        var isFischer     = (system === 'fischer');
+
+        // Moves from gamedata: each entry is [x, y, timedelta_ms]
+        var gd    = r.gamedata || {};
+        var moves = gd.moves   || [];
+        dbg('clockBlame gid=' + game.id + ': system=' + system + ' mainTime=' + mainTime +
+            ' increment=' + timeIncrement + ' periodTime=' + periodTime +
+            ' periods=' + numPer + ' moves=' + moves.length, 'info');
+
+        // Log a few raw timedeltas so we can verify units
+        if (moves.length) {
+            var sample = moves.slice(0, Math.min(4, moves.length)).map(function(m) {
+                return '[' + (m[0]) + ',' + (m[1]) + ',' + (m[2]) + ']';
+            });
+            dbg('clockBlame gid=' + game.id + ' sample moves: ' + sample.join(' '), 'info');
+        }
+
+        var color = getColor(game);
+        if (!color) {
+            dbg('clockBlame: cannot determine color for gid=' + game.id, 'warn');
+            return null;
+        }
+        var N = numPlayers;
+
+        // Per-player state
+        var stats = [];
+        for (var i = 0; i < N; i++) {
+            stats.push({
+                name:          teamNames[i] || ('Player ' + i),
+                moveCount:     0,
+                mainUsed:      0,   // net seconds consumed (after increments for Fischer)
+                periodsUsed:   0,
+                incrementEarned: 0, // total increment bonus accumulated (Fischer only)
+                // runtime clock simulation
+                mainLeft:      mainTime,
+                periodsLeft:   numPer,
+                inByoyomi:     mainTime === 0
+            });
+        }
+
+        // OGS timedeltas are in milliseconds — convert to seconds.
+        var tdScale = 0.001;
+
+        for (var mi = 0; mi < moves.length; mi++) {
+            var mv = moves[mi];
+            var td = (mv && mv[2] != null) ? Math.min(Number(mv[2]) * tdScale, mainTime + numPer * periodTime + 60) : 0;
+            if (td < 0) td = 0;
+
+            // Is this move ours?
+            var isBlack  = (mi % 2 === 0);
+            var isOurs   = (color === 'black') ? isBlack : !isBlack;
+            if (!isOurs) continue;
+
+            // Which player on our team?
+            var ourSeq = Math.floor(mi / 2);
+            var pi     = ourSeq % N;
+            var ps     = stats[pi];
+            ps.moveCount++;
+
+            if (isByoyomi) {
+                if (!ps.inByoyomi) {
+                    if (td <= ps.mainLeft) {
+                        ps.mainUsed += td;
+                        ps.mainLeft -= td;
+                        if (ps.mainLeft < 0.01) ps.inByoyomi = true;
+                    } else {
+                        // Transition into byoyomi this move
+                        ps.mainUsed += ps.mainLeft;
+                        var byoPart   = td - ps.mainLeft;
+                        ps.mainLeft   = 0;
+                        ps.inByoyomi  = true;
+                        if (byoPart >= periodTime * 0.98) {
+                            ps.periodsUsed++;
+                            ps.periodsLeft = Math.max(0, ps.periodsLeft - 1);
+                        }
+                    }
+                } else {
+                    // Already in byoyomi: period consumed only if ≥ period_time
+                    if (td >= periodTime * 0.98) {
+                        ps.periodsUsed++;
+                        ps.periodsLeft = Math.max(0, ps.periodsLeft - 1);
+                    }
+                }
+            } else if (isFischer) {
+                // Real time spent thinking on this move
+                ps.mainUsed += td;
+                // Each move earns an increment toward the total budget
+                ps.incrementEarned += timeIncrement;
+            } else {
+                // Simple / absolute: just accumulate
+                ps.mainUsed += td;
+                ps.mainLeft  = Math.max(0, ps.mainLeft - td);
+            }
+        }
+
+        dbg('clockBlame gid=' + game.id + ' done: ' +
+            stats.map(function(s) { return s.name + '=' + Math.round(s.mainUsed) + 's/' + s.periodsUsed + 'p'; }).join(', '), 'ok');
+
+        return {
+            gameId: game.id, color: color,
+            system: system, mainTime: mainTime, periodTime: periodTime, numPer: numPer,
+            timeIncrement: timeIncrement,
+            stats: stats
+        };
+    } catch(e) {
+        dbg('computeClockBlame gid=' + game.id + ': ' + e.message, 'err');
+        return null;
+    }
+}
+
+function renderClockBlame(blameList) {
+    var el = document.getElementById('blame');
+    if (!blameList || !blameList.length) { el.innerHTML = ''; return; }
+
+    var html = '';
+    blameList.forEach(function(b) {
+        if (!b) return;
+        var isByo    = b.system === 'byoyomi';
+        var isFisch  = b.system === 'fischer';
+        var colorLbl = b.color === 'black' ? '⚫ Black' : '⚪ White';
+        var metaParts = [colorLbl + ' team', b.system];
+        if (b.mainTime) metaParts.push(fmtSec(b.mainTime) + ' main');
+        if (isFisch && b.timeIncrement) metaParts.push('+' + fmtSec(b.timeIncrement) + '/move');
+        if (isByo) metaParts.push(b.numPer + ' × ' + fmtSec(b.periodTime) + ' byoyomi');
+
+        html += '<div class="blame-card">';
+        html += '<div class="blame-header">'
+              + '<span class="blame-title">⏱ Clock Blame</span>'
+              + '<a class="blame-game-link" href="https://online-go.com/game/' + b.gameId + '" target="_blank" rel="noopener">Game #' + b.gameId + ' ↗</a>'
+              + '</div>';
+        html += '<div class="blame-meta">' + metaParts.join(' · ') + '</div>';
+        html += '<div class="blame-rows">';
+
+        b.stats.forEach(function(ps, i) {
+            var isMe       = (i === myPlayerIndex);
+            var totalAvail = isFisch ? (b.mainTime + ps.incrementEarned) : b.mainTime;
+            var mainPct    = totalAvail > 0 ? Math.min(100, (ps.mainUsed / totalAvail) * 100) : 0;
+            var mainWarn   = mainPct > 75;
+
+            html += '<div class="blame-row' + (isMe ? ' is-me' : '') + '">';
+            html += '<div class="blame-row-top">'
+                  + '<span class="blame-name">' + esc(ps.name) + '</span>'
+                  + '<span class="blame-moves">' + ps.moveCount + ' move' + (ps.moveCount !== 1 ? 's' : '') + '</span>'
+                  + '</div>';
+            html += '<div class="blame-stats">';
+
+            // Main time block
+            if (b.mainTime > 0) {
+                html += '<div class="blame-stat-block">'
+                      + '<div class="blame-stat-label">' + (isFisch ? 'Fischer time' : 'Main time') + '</div>'
+                      + '<div class="blame-stat-value' + (mainWarn ? ' highlight' : '') + '">'
+                      + fmtSec(ps.mainUsed) + ' / ' + fmtSec(totalAvail)
+                      + '</div>'
+                      + '<div class="blame-bar-track"><div class="blame-bar-fill' + (mainWarn ? ' warn' : '') + '" style="width:' + mainPct.toFixed(1) + '%"></div></div>'
+                      + '</div>';
+            }
+
+            // Byoyomi block
+            if (isByo) {
+                var pipsHtml = '';
+                for (var p = 0; p < b.numPer; p++) {
+                    var cls = p < ps.periodsUsed ? 'used' : 'free';
+                    pipsHtml += '<div class="blame-pip ' + cls + '"></div>';
+                }
+                html += '<div class="blame-stat-block">'
+                      + '<div class="blame-stat-label">Byoyomi</div>'
+                      + '<div class="blame-stat-value' + (ps.periodsUsed > 0 ? ' highlight' : '') + '">'
+                      + ps.periodsUsed + ' / ' + b.numPer + ' period' + (b.numPer !== 1 ? 's' : '')
+                      + '</div>'
+                      + '<div class="blame-pips">' + pipsHtml + '</div>'
+                      + '</div>';
+            }
+
+            html += '</div>'; // blame-stats
+            html += '</div>'; // blame-row
+        });
+
+        html += '</div></div>'; // blame-rows, blame-card
+    });
+
+    el.innerHTML = html;
 }
 
 /* ── Alarm ──────────────────────────────────────── */
@@ -991,7 +1308,8 @@ document.getElementById('username').addEventListener('input', function () {
 async function search() {
     var name = document.getElementById('username').value.trim();
     if (!name) return;
-    stopPolling(); stopWaiting(); clearState(); clearApiError(); wsDisconnect();
+    stopPolling(); stopWaiting(); clearState(); clearApiError(); clearBlame(); wsDisconnect();
+    gameOverInProgress = false;
     consecutiveErrors = 0;
     setInputState('is-loading');
     showStatus('🔍 Looking up ' + esc(name) + '…');
