@@ -466,6 +466,41 @@ var lastEntries = [], teamNames = ['', ''];
 var numPlayers = 2, myPlayerIndex = 0, lastApiError = null;
 var prevMoves = {};
 
+/* ── LocalStorage persistence ───────────────────── */
+var STORAGE_KEY = 'ogs-tandem-settings';
+
+function saveSettings() {
+    try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({
+            numPlayers: numPlayers,
+            myPlayerIndex: myPlayerIndex,
+            teamNames: teamNames,
+            username: document.getElementById('username') ? document.getElementById('username').value.trim() : ''
+        }));
+    } catch(e) { /* storage unavailable */ }
+}
+
+function loadSettings() {
+    try {
+        var raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return;
+        var s = JSON.parse(raw);
+        if (typeof s.numPlayers === 'number' && s.numPlayers >= 1 && s.numPlayers <= 20)
+            numPlayers = s.numPlayers;
+        if (typeof s.myPlayerIndex === 'number' && s.myPlayerIndex >= 0 && s.myPlayerIndex < numPlayers)
+            myPlayerIndex = s.myPlayerIndex;
+        if (Array.isArray(s.teamNames)) {
+            teamNames = s.teamNames.slice();
+            while (teamNames.length < numPlayers) teamNames.push('');
+        }
+        if (s.username) {
+            // Only set if URL didn't already specify one
+            var el = document.getElementById('username');
+            if (el && !el.value.trim()) el.value = s.username;
+        }
+    } catch(e) { /* ignore corrupt data */ }
+}
+
 /* ── URL Params ─────────────────────────────────── */
 (function initFromURL() {
     var p = new URLSearchParams(window.location.search);
@@ -479,10 +514,24 @@ var prevMoves = {};
         while (teamNames.length < numPlayers) teamNames.push('');
         for (var i = 0; i < parts.length && i < numPlayers; i++) teamNames[i] = parts[i];
     }
+    // Load persisted settings (URL params take priority over stored values)
+    loadSettings();
+    // URL params override stored values if explicitly present
+    if (n >= 1 && n <= 20) numPlayers = n;
+    if (!isNaN(me) && me >= 0 && me < numPlayers) myPlayerIndex = me;
+    if (names) {
+        var parts2 = names.split(',').map(function(s) { return decodeURIComponent(s); });
+        while (teamNames.length < numPlayers) teamNames.push('');
+        for (var i2 = 0; i2 < parts2.length && i2 < numPlayers; i2++) teamNames[i2] = parts2[i2];
+    }
     var user = p.get('user');
     if (user) {
         document.getElementById('username').value = user;
         setTimeout(function() { search(); }, 100);
+    } else {
+        // Auto-search if we have a stored username
+        var stored = document.getElementById('username').value.trim();
+        if (stored) setTimeout(function() { search(); }, 100);
     }
 })();
 
@@ -804,16 +853,16 @@ function renderApiError() {
 }
 
 /* ── Tracker UI ─────────────────────────────────── */
-function selectPlayer(i) { myPlayerIndex = i; if (lastEntries.length) render(lastEntries); else renderTracker(); syncURL(); }
+function selectPlayer(i) { myPlayerIndex = i; if (lastEntries.length) render(lastEntries); else renderTracker(); syncURL(); saveSettings(); }
 function changeCount(d) {
     numPlayers = Math.max(1, Math.min(20, numPlayers + d));
     if (myPlayerIndex >= numPlayers) myPlayerIndex = numPlayers - 1;
     while (teamNames.length < numPlayers) teamNames.push('');
     teamNames.length = numPlayers;
     if (lastEntries.length) render(lastEntries); else renderTracker();
-    syncURL();
+    syncURL(); saveSettings();
 }
-function onNameInput(el) { teamNames[parseInt(el.dataset.tindex)] = el.value; syncURL(); }
+function onNameInput(el) { teamNames[parseInt(el.dataset.tindex)] = el.value; syncURL(); saveSettings(); }
 
 function buildPlayerLink(playerIndex) {
     var p = new URLSearchParams();
@@ -960,7 +1009,7 @@ async function search() {
         prevMoves = {}; cachedStates = {}; cachedActiveGames = []; lastEntries = [];
         dbg('search: found ' + match.username + ' id=' + playerId, 'ok');
         if (!teamNames[myPlayerIndex]) teamNames[myPlayerIndex] = match.username;
-        syncURL();
+        syncURL(); saveSettings();
 
         var full = await api('/players/' + playerId + '/full/');
         cachedActiveGames = full.active_games || [];
