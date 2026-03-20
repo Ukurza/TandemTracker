@@ -50,16 +50,17 @@
         .subtitle { color: var(--muted); margin-bottom: 32px; }
 
         .search-box {
-            display: flex; gap: 10px;
             width: 100%; max-width: 500px;
             margin-bottom: 24px;
         }
         .search-box input {
-            flex: 1; padding: 14px 18px;
+            width: 100%; padding: 14px 18px;
             border: 2px solid #2a2a4a; border-radius: 10px;
             background: var(--card); color: var(--text); font-size: 1em;
+            transition: border-color 0.3s;
         }
-        .search-box input:focus { outline: none; border-color: var(--accent); }
+        .search-box input:focus { outline: none; border-color: #4a4a6a; }
+        .search-box input.is-error { border-color: var(--red); }
         button {
             padding: 14px 28px; background: var(--accent);
             border: none; border-radius: 10px;
@@ -171,6 +172,19 @@
         .tracker-row.is-current.is-you .tracker-name { color: #4ade80; }
         .tracker-row.is-next .tracker-name { color: var(--amber); }
 
+        .row-link-btn {
+            width: 22px; height: 22px; border-radius: 5px; flex-shrink: 0;
+            background: transparent; border: 1px solid transparent;
+            color: #2a2a4a; font-size: 0.8em; cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            padding: 0; opacity: 0; transition: opacity 0.2s, color 0.2s, border-color 0.2s, background 0.2s;
+            line-height: 1;
+        }
+        .tracker-row:hover .row-link-btn { opacity: 1; color: #444; border-color: #2a2a4a; }
+        .row-link-btn:hover { background: rgba(255,255,255,0.06) !important; color: #888 !important; border-color: #3a3a5a !important; }
+        .row-link-btn.did-copy { opacity: 1; color: var(--green) !important; border-color: rgba(34,197,94,0.3) !important; background: rgba(34,197,94,0.07) !important; }
+        .row-link-btn:active { transform: scale(0.88); }
+
         .tracker-tag {
             font-size: 0.58em; font-weight: 700; text-transform: uppercase;
             letter-spacing: 0.6px; padding: 3px 8px; border-radius: 5px;
@@ -250,6 +264,46 @@
             80% { transform: rotate(-8deg); } 100% { transform: rotate(0); }
         }
 
+        .share-row {
+            display: flex; align-items: center; gap: 8px;
+            width: 100%; max-width: 500px; margin-bottom: 18px;
+        }
+        .share-url-box {
+            flex: 1; display: flex; align-items: center; gap: 0;
+            background: var(--card); border: 1.5px solid #2a2a4a;
+            border-radius: 10px; overflow: hidden; transition: border-color 0.3s;
+        }
+        .share-url-box:focus-within { border-color: #3a3a6a; }
+        .share-url-input {
+            flex: 1; padding: 10px 14px; background: transparent;
+            border: none; color: #666; font-size: 0.72em;
+            font-family: 'Courier New', monospace;
+            outline: none; white-space: nowrap; overflow: hidden;
+            text-overflow: ellipsis; cursor: default;
+            user-select: all;
+        }
+        .copy-btn {
+            padding: 10px 16px; background: rgba(255,255,255,0.04);
+            border: none; border-left: 1.5px solid #2a2a4a;
+            color: #666; font-size: 0.72em; font-weight: 700;
+            cursor: pointer; letter-spacing: 0.5px;
+            text-transform: uppercase; transition: all 0.2s;
+            white-space: nowrap; border-radius: 0;
+        }
+        .copy-btn:hover { background: rgba(255,255,255,0.09); color: var(--text); }
+        .copy-btn.copied { color: var(--green); background: rgba(34,197,94,0.08); }
+        .copy-btn:active { transform: none; }
+
+        .toast {
+            position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%) translateY(16px);
+            background: #1e2e1e; border: 1px solid rgba(34,197,94,0.3);
+            color: var(--green); font-size: 0.8em; font-weight: 600;
+            padding: 10px 20px; border-radius: 10px; pointer-events: none;
+            opacity: 0; transition: opacity 0.2s, transform 0.2s;
+            z-index: 200; white-space: nowrap;
+        }
+        .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
         .debug-toggle {
             position: fixed; bottom: 10px; right: 10px;
             width: 28px; height: 28px; border-radius: 6px;
@@ -316,7 +370,6 @@
 
     <div class="search-box">
         <input type="text" id="username" placeholder="Enter OGS username…" autocomplete="off">
-        <button id="searchBtn" onclick="search()">Search</button>
     </div>
 
     <div id="apiError"></div>
@@ -329,6 +382,8 @@
             <span id="alarmLabel">alarm</span>
         </div>
     </div>
+
+    <div class="toast" id="toast">✔ Link copied!</div>
 
     <div class="debug-toggle" onclick="toggleDebug()">🐛</div>
     <div class="debug-panel" id="debugPanel">
@@ -352,7 +407,6 @@ function dbg(msg, level) {
     debugEntries.push({ t: t, msg: msg, level: level });
     if (debugEntries.length > 300) {
         debugEntries.shift();
-        // Also remove the oldest DOM node to stay in sync
         var el = document.getElementById('debugLog');
         if (el && el.firstChild) el.removeChild(el.firstChild);
     }
@@ -362,7 +416,6 @@ function dbg(msg, level) {
     div.className = 'debug-entry log-' + level;
     div.innerHTML = '<span class="dt">' + t + '</span> ' + esc(String(msg));
     el.appendChild(div);
-    // Only auto-scroll when the user hasn't scrolled up to read
     if (!debugPaused) el.scrollTop = el.scrollHeight;
     var cnt = document.getElementById('debugCount');
     if (cnt) cnt.textContent = debugEntries.length + ' lines';
@@ -383,7 +436,6 @@ function debugJumpToBottom() {
 function toggleDebug() {
     var panel = document.getElementById('debugPanel');
     panel.classList.toggle('open');
-    // Jump to bottom whenever the panel is opened
     if (panel.classList.contains('open')) debugJumpToBottom();
 }
 
@@ -396,12 +448,10 @@ function clearDebug() {
     debugSetPaused(false);
 }
 
-// Wire up the scroll listener after DOM is ready
 document.addEventListener('DOMContentLoaded', function () {
     var el = document.getElementById('debugLog');
     if (!el) return;
     el.addEventListener('scroll', function () {
-        // Consider "at bottom" if within 8px — accounts for subpixel rounding
         var atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 8;
         if (atBottom && debugPaused) debugSetPaused(false);
         else if (!atBottom && !debugPaused) debugSetPaused(true);
@@ -415,6 +465,39 @@ var cachedStates = {}, cachedActiveGames = [];
 var lastEntries = [], teamNames = ['', ''];
 var numPlayers = 2, myPlayerIndex = 0, lastApiError = null;
 var prevMoves = {};
+
+/* ── URL Params ─────────────────────────────────── */
+(function initFromURL() {
+    var p = new URLSearchParams(window.location.search);
+    var n = parseInt(p.get('n'));
+    if (n >= 1 && n <= 20) numPlayers = n;
+    var me = parseInt(p.get('me'));
+    if (!isNaN(me) && me >= 0 && me < numPlayers) myPlayerIndex = me;
+    var names = p.get('names');
+    if (names) {
+        var parts = names.split(',').map(function(s) { return decodeURIComponent(s); });
+        while (teamNames.length < numPlayers) teamNames.push('');
+        for (var i = 0; i < parts.length && i < numPlayers; i++) teamNames[i] = parts[i];
+    }
+    var user = p.get('user');
+    if (user) {
+        document.getElementById('username').value = user;
+        setTimeout(function() { search(); }, 100);
+    }
+})();
+
+function syncURL() {
+    var p = new URLSearchParams();
+    var uv = document.getElementById('username').value.trim();
+    if (uv) p.set('user', uv);
+    if (numPlayers !== 2) p.set('n', numPlayers);
+    if (myPlayerIndex !== 0) p.set('me', myPlayerIndex);
+    var nonEmpty = teamNames.slice(0, numPlayers).some(function(n) { return n.trim(); });
+    if (nonEmpty) p.set('names', teamNames.slice(0, numPlayers).map(function(n) { return encodeURIComponent(n || ''); }).join(','));
+    var base = window.location.pathname;
+    var qs = p.toString();
+    history.replaceState(null, '', qs ? base + '?' + qs : base);
+}
 
 /* ── Socket.io ──────────────────────────────────── */
 // Socket.io handles: protocol framing, heartbeat/ping-pong, and
@@ -446,11 +529,9 @@ function wsConnect() {
         wsConnected = true;
         clearApiError();
 
-        // Identify and subscribe to notifications (unauthenticated)
         socket.emit('authenticate', { device_id: 'tracker-' + Date.now() });
         socket.emit('notification/connect', { player_id: 0 });
 
-        // Re-subscribe to any games we were tracking before a reconnect
         var gids = Object.keys(subscribedGames);
         if (gids.length) {
             dbg('WS: re-subscribing to ' + gids.length + ' game(s)', 'ws');
@@ -466,16 +547,14 @@ function wsConnect() {
         dbg('WS: disconnected (' + reason + ')', 'warn');
         wsConnected = false;
         updateConnectionUI();
-        // Socket.io will reconnect automatically; no manual timer needed.
     });
 
     socket.on('connect_error', function (err) {
         dbg('WS: connect_error: ' + err.message, 'err');
     });
 
-    // Capture every event so we can route game/* messages dynamically.
     socket.onAny(function (event, data) {
-        if (event === 'net/pong') return; // ignore heartbeat noise
+        if (event === 'net/pong') return;
         dbg('WS RX: ' + event + ' ' + JSON.stringify(data).substring(0, 200), 'evt');
         if (typeof event === 'string' && event.indexOf('game/') === 0) {
             handleGameEvent(event, data);
@@ -490,7 +569,6 @@ function wsSubscribeGame(gameId) {
     if (wsConnected && socket) {
         socket.emit('game/connect', { game_id: gameId });
     }
-    // If not yet connected, the connect handler will re-subscribe automatically.
 }
 
 function wsUnsubscribeAll() {
@@ -533,8 +611,24 @@ function handleGameEvent(event, data) {
         dbg('WS move gid=' + gid + ' move=' + mn2 + ' (was ' + prev + ')', 'ok');
         cachedStates[gid] = Object.assign({}, cachedStates[gid] || {}, { move_number: mn2 });
         renderFromCache();
+    } else if (type === 'undo_requested') {
+        dbg('WS undo_requested gid=' + gid + ' move=' + (data.move_number || '?'), 'warn');
+    } else if (type === 'undo_accepted') {
+        var undoMove = typeof data.move_number === 'number' ? data.move_number : null;
+        if (undoMove !== null) {
+            dbg('WS undo_accepted gid=' + gid + ' reverting to move=' + undoMove, 'ok');
+            cachedStates[gid] = Object.assign({}, cachedStates[gid] || {}, { move_number: undoMove });
+            wasMyTurn = false; // force alarm re-trigger if it's now our turn
+            renderFromCache();
+        }
     } else if (type === 'clock') {
         dbg('WS clock gid=' + gid, 'evt');
+    } else if (type === 'phase') {
+        dbg('WS phase gid=' + gid + ' phase=' + (data || '?'), 'warn');
+        if (data === 'finished') {
+            dbg('WS: game ' + gid + ' finished, refreshing game list…', 'warn');
+            gameOver();
+        }
     } else {
         dbg('WS game event: ' + type + ' gid=' + gid, 'evt');
     }
@@ -552,7 +646,7 @@ function updateConnectionUI() {
     if (lastEntries.length) render(lastEntries);
 }
 
-/* ── REST Polling (fallback / heartbeat) ─────────── */
+/* ── REST Polling (fallback / heartbeat) ────────── */
 var stateTimer = null;
 var BASE_INTERVAL = 5000;
 var MAX_INTERVAL = 10000;
@@ -640,12 +734,18 @@ async function refreshGameList() {
         cachedActiveGames = full.active_games || [];
         dbg('refreshGameList: ' + cachedActiveGames.length + ' games', 'ok');
         if (!cachedActiveGames.length) {
-            showStatus('No active game found.');
-            clearState(); stopPolling();
+            gameOver();
         }
     } catch (err) {
         dbg('refreshGameList failed: ' + err.message, 'err');
     }
+}
+
+function gameOver() {
+    stopPolling(); wsDisconnect(); clearState();
+    cachedActiveGames = []; cachedStates = {}; lastEntries = [];
+    showStatus('✔ Game ended — waiting for a new game… <span id="waitCountdown">10</span>s');
+    startWaitingForGame();
 }
 
 /* ── Alarm ──────────────────────────────────────── */
@@ -704,15 +804,46 @@ function renderApiError() {
 }
 
 /* ── Tracker UI ─────────────────────────────────── */
-function selectPlayer(i) { myPlayerIndex = i; if (lastEntries.length) render(lastEntries); else renderTracker(); }
+function selectPlayer(i) { myPlayerIndex = i; if (lastEntries.length) render(lastEntries); else renderTracker(); syncURL(); }
 function changeCount(d) {
     numPlayers = Math.max(1, Math.min(20, numPlayers + d));
     if (myPlayerIndex >= numPlayers) myPlayerIndex = numPlayers - 1;
     while (teamNames.length < numPlayers) teamNames.push('');
     teamNames.length = numPlayers;
     if (lastEntries.length) render(lastEntries); else renderTracker();
+    syncURL();
 }
-function onNameInput(el) { teamNames[parseInt(el.dataset.tindex)] = el.value; }
+function onNameInput(el) { teamNames[parseInt(el.dataset.tindex)] = el.value; syncURL(); }
+
+function buildPlayerLink(playerIndex) {
+    var p = new URLSearchParams();
+    var uv = document.getElementById('username').value.trim();
+    if (uv) p.set('user', uv);
+    if (numPlayers !== 2) p.set('n', numPlayers);
+    p.set('me', playerIndex);
+    var nonEmpty = teamNames.slice(0, numPlayers).some(function(n) { return n.trim(); });
+    if (nonEmpty) p.set('names', teamNames.slice(0, numPlayers).map(function(n) { return encodeURIComponent(n || ''); }).join(','));
+    return window.location.origin + window.location.pathname + '?' + p.toString();
+}
+
+var rowCopyTimers = {};
+function copyPlayerLink(playerIndex, btn) {
+    var url = buildPlayerLink(playerIndex);
+    navigator.clipboard.writeText(url).then(function() {
+        btn.classList.add('did-copy');
+        btn.innerHTML = '✔';
+        clearTimeout(rowCopyTimers[playerIndex]);
+        rowCopyTimers[playerIndex] = setTimeout(function() {
+            btn.classList.remove('did-copy');
+            btn.innerHTML = linkIcon;
+        }, 1800);
+    }).catch(function() {
+        var ta = document.createElement('textarea');
+        ta.value = url; document.body.appendChild(ta); ta.select();
+        document.execCommand('copy'); document.body.removeChild(ta);
+    });
+}
+var linkIcon = '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 9.5a4 4 0 0 0 5.657 0l2-2a4 4 0 0 0-5.657-5.657L7.086 3.257"/><path d="M9.5 6.5a4 4 0 0 0-5.657 0l-2 2a4 4 0 0 0 5.657 5.657L8.914 12.743"/></svg>';
 
 function renderTracker() {
     var N = numPlayers, P = myPlayerIndex, c = document.getElementById('tracker');
@@ -750,7 +881,7 @@ function renderTracker() {
                 if (isCurr && isMine) tag = '<span class="tracker-tag turn">YOUR TURN</span>';
                 else if (isNext) tag = '<span class="tracker-tag next">NEXT</span>';
                 else if (isMine) tag = '<span class="tracker-tag waiting">WAITING</span>';
-                h += '<div class="' + rc + '" onclick="selectPlayer(' + ti + ')"><div class="tracker-radio"></div><input class="tracker-name" type="text" data-tindex="' + ti + '" placeholder="Player ' + ti + '" value="' + esc(nm) + '" onclick="event.stopPropagation()" oninput="onNameInput(this)" />' + tag + '</div>';
+                h += '<div class="' + rc + '" onclick="selectPlayer(' + ti + ')"><div class="tracker-radio"></div><input class="tracker-name" type="text" data-tindex="' + ti + '" placeholder="Player ' + ti + '" value="' + esc(nm) + '" onclick="event.stopPropagation()" oninput="onNameInput(this)" />' + tag + '<button class="row-link-btn" title="Copy link for this player" onclick="event.stopPropagation();copyPlayerLink(' + ti + ',this)">' + linkIcon + '</button></div>';
             } else {
                 var oc = 'tracker-opp'; if (isCurr) oc += ' is-current';
                 var st = isB ? '⚫' : '⚪', lb = isCurr ? st + ' playing' : st;
@@ -761,7 +892,7 @@ function renderTracker() {
         for (var j = 0; j < N; j++) {
             var isY = j === P, rc2 = 'tracker-row' + (isY ? ' is-you' : '');
             var tag2 = isY ? '<span class="tracker-tag waiting">WAITING</span>' : '';
-            h += '<div class="' + rc2 + '" onclick="selectPlayer(' + j + ')"><div class="tracker-radio"></div><input class="tracker-name" type="text" data-tindex="' + j + '" placeholder="Player ' + j + '" value="' + esc(teamNames[j] || '') + '" onclick="event.stopPropagation()" oninput="onNameInput(this)" />' + tag2 + '</div>';
+            h += '<div class="' + rc2 + '" onclick="selectPlayer(' + j + ')"><div class="tracker-radio"></div><input class="tracker-name" type="text" data-tindex="' + j + '" placeholder="Player ' + j + '" value="' + esc(teamNames[j] || '') + '" onclick="event.stopPropagation()" oninput="onNameInput(this)" />' + tag2 + '<button class="row-link-btn" title="Copy link for this player" onclick="event.stopPropagation();copyPlayerLink(' + j + ',this)">' + linkIcon + '</button></div>';
         }
     }
     h += '</div>';
@@ -784,56 +915,122 @@ function renderTracker() {
 renderTracker();
 
 /* ── Search ─────────────────────────────────────── */
-document.getElementById('username')
-    .addEventListener('keydown', function (e) { if (e.key === 'Enter') search(); });
+var searchDebounce = null;
+var waitingTimer = null;
+var waitingCountdown = null;
+
+function setInputState(state) {
+    var el = document.getElementById('username');
+    el.classList.remove('is-loading', 'is-found', 'is-error');
+    if (state) el.classList.add(state);
+}
+
+function stopWaiting() {
+    clearInterval(waitingCountdown);
+    waitingCountdown = null;
+    waitingTimer = null;
+}
+
+document.getElementById('username').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { clearTimeout(searchDebounce); search(); }
+});
+document.getElementById('username').addEventListener('input', function () {
+    clearTimeout(searchDebounce);
+    searchDebounce = setTimeout(function() { search(); }, 600);
+});
 
 async function search() {
     var name = document.getElementById('username').value.trim();
     if (!name) return;
-    var btn = document.getElementById('searchBtn');
-    btn.disabled = true; btn.textContent = '…';
-    stopPolling(); clearState(); clearApiError();
-    wsDisconnect();
+    stopPolling(); stopWaiting(); clearState(); clearApiError(); wsDisconnect();
     consecutiveErrors = 0;
-    showStatus('🔍 Searching player…');
+    setInputState('is-loading');
+    showStatus('🔍 Looking up ' + esc(name) + '…');
     dbg('search: looking up "' + name + '"', 'info');
 
     try {
         var pData = await api('/players/?username=' + enc(name));
-        dbg('search: got ' + (pData.results ? pData.results.length : 0) + ' results', 'ok');
         var match = null;
         if (pData.results) {
             match = pData.results.find(function (p) { return p.username.toLowerCase() === name.toLowerCase(); }) || pData.results[0];
         }
-        if (!match) { showStatus('Player "' + name + '" not found.', true); return; }
+        if (!match) { setInputState('is-error'); showStatus('Player "' + esc(name) + '" not found.', true); return; }
 
         playerId = match.id; playerName = match.username.toLowerCase();
         prevMoves = {}; cachedStates = {}; cachedActiveGames = []; lastEntries = [];
         dbg('search: found ' + match.username + ' id=' + playerId, 'ok');
         if (!teamNames[myPlayerIndex]) teamNames[myPlayerIndex] = match.username;
+        syncURL();
 
         var full = await api('/players/' + playerId + '/full/');
         cachedActiveGames = full.active_games || [];
         dbg('search: ' + cachedActiveGames.length + ' active games', 'ok');
 
+        setInputState(null);
+
         if (!cachedActiveGames.length) {
-            showStatus('No active game found.'); return;
+            showStatus('✔ Found <strong>' + esc(match.username) + '</strong> — waiting for an active game… <span id="waitCountdown">10</span>s');
+            startWaitingForGame();
+            return;
         }
 
-        wsConnect();
-
-        cachedActiveGames.slice(0, 5).forEach(function (g) {
-            wsSubscribeGame(g.id);
-        });
-
-        await pollStates();
-
-        startPolling();
+        activateGame();
 
     } catch (err) {
         dbg('search: ERROR: ' + err.message, 'err');
+        setInputState('is-error');
         handleErr(err);
-    } finally { btn.disabled = false; btn.textContent = 'Search'; }
+    }
+}
+
+function startWaitingForGame() {
+    stopWaiting();
+    var INTERVAL = 10;
+    var remaining = INTERVAL;
+
+    function updateCountdown() {
+        var el = document.getElementById('waitCountdown');
+        if (el) el.textContent = remaining;
+    }
+
+    async function doCheck() {
+        if (!playerId) { stopWaiting(); return; }
+        dbg('waitingForGame: checking…', 'info');
+        try {
+            var full = await api('/players/' + playerId + '/full/');
+            cachedActiveGames = full.active_games || [];
+            if (cachedActiveGames.length) {
+                dbg('waitingForGame: game found!', 'ok');
+                stopWaiting();
+                activateGame();
+                return;
+            }
+        } catch(err) {
+            dbg('waitingForGame: error ' + err.message, 'err');
+        }
+        remaining = INTERVAL;
+        updateCountdown();
+    }
+
+    waitingCountdown = setInterval(function() {
+        remaining--;
+        if (remaining <= 0) {
+            remaining = 0;
+            updateCountdown();
+            doCheck();
+        } else {
+            updateCountdown();
+        }
+    }, 1000);
+
+    waitingTimer = true; // mark as active so stopWaiting knows
+}
+
+function activateGame() {
+    wsConnect();
+    cachedActiveGames.slice(0, 5).forEach(function (g) { wsSubscribeGame(g.id); });
+    pollStates();
+    startPolling();
 }
 
 /* ── Color / Turn ───────────────────────────────── */
@@ -886,7 +1083,7 @@ async function api(path) {
     if (!r.ok) { var e = new Error('API ' + r.status + ': ' + path); e.apiStatus = r.status; throw e; }
     return r.json();
 }
-function clearState() { document.body.classList.remove('my-turn', 'im-next'); stopAlarm(); wasMyTurn = false; }
+function clearState() { document.body.classList.remove('my-turn', 'im-next'); stopAlarm(); stopWaiting(); wasMyTurn = false; }
 function showStatus(m, e) { document.getElementById('results').innerHTML = '<div class="status-msg ' + (e ? 'error' : '') + '">' + m + '</div>'; }
 function handleErr(e) { console.error(e); showStatus(e instanceof TypeError ? '⚠️ Network/CORS error.' : '❌ ' + e.message, true); }
 function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
