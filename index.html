@@ -725,8 +725,10 @@ function handleGameEvent(event, data) {
         var mn = 0;
         if (typeof data.move_number === 'number') mn = data.move_number;
         else if (Array.isArray(data.moves)) mn = data.moves.length;
-        dbg('WS gamedata gid=' + gid + ' move=' + mn + ' phase=' + (data.phase || '?'), 'ok');
-        cachedStates[gid] = Object.assign({}, cachedStates[gid] || {}, { move_number: mn });
+        dbg('WS gamedata gid=' + gid + ' move=' + mn + ' phase=' + (data.phase || '?') + ' handicap=' + (data.handicap || 0), 'ok');
+        var patch = { move_number: mn };
+        if (typeof data.handicap === 'number') patch.handicap = data.handicap;
+        cachedStates[gid] = Object.assign({}, cachedStates[gid] || {}, patch);
         if (data.phase === 'finished') {
             dbg('WS: game ' + gid + ' finished (via gamedata), triggering gameOver', 'warn');
             gameOver();
@@ -1214,16 +1216,17 @@ var linkIcon = '<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stro
 
 function renderTracker() {
     var N = numPlayers, P = myPlayerIndex, c = document.getElementById('tracker');
-    var Z = null, color = null;
+    var Z = null, color = null, handicap = 0;
     if (lastEntries.length) {
         var first = lastEntries[0];
         Z = first.state ? (first.state.move_number != null ? first.state.move_number : null) : null;
         color = getColor(first.game);
+        handicap = first.state && first.state.handicap ? first.state.handicap : 0;
     }
     var hasGame = (typeof Z === 'number' && color !== null);
     var totalSlots = 2 * N;
     var turnInfo = null;
-    if (hasGame) turnInfo = getTurnInfo(Z, N, P, color);
+    if (hasGame) turnInfo = getTurnInfo(Z, N, P, color, handicap);
     var ae = document.activeElement, fi = ae ? ae.dataset.tindex : undefined, cp = ae ? ae.selectionStart : undefined;
     var cls = 'tracker';
     if (turnInfo && turnInfo.myTurn) cls += ' state-now';
@@ -1238,7 +1241,7 @@ function renderTracker() {
     h += '<div class="tracker-slots">';
     if (hasGame) {
         for (var i = 0; i < totalSlots; i++) {
-            var isB = i % 2 === 0, ti = Math.floor(i / 2), isMyT = color === 'black' ? isB : !isB;
+            var isB = (i % 2 === 0) !== (handicap > 0), ti = Math.floor(i / 2), isMyT = color === 'black' ? isB : !isB;
             var isCurr = i === turnInfo.currentSlot, isMine = i === turnInfo.playerSlot;
             var isNext = isMine && turnInfo.dist === 1 && !isCurr;
             if (isMyT) {
@@ -1414,10 +1417,11 @@ function getColor(game) {
     return null;
 }
 
-function getTurnInfo(Z, N, P, color) {
+function getTurnInfo(Z, N, P, color, handicap) {
     if (typeof Z !== 'number' || !color)
         return { myTurn: false, imNext: false, dist: 0, currentSlot: 0, playerSlot: 0 };
-    var t = 2 * N, pS = color === 'white' ? 2 * P + 1 : 2 * P, cS = Z % t, d = (pS - cS + t) % t;
+    var hc = handicap > 0;
+    var t = 2 * N, pS = (color === 'white') !== hc ? 2 * P + 1 : 2 * P, cS = Z % t, d = (pS - cS + t) % t;
     return { myTurn: d === 0, imNext: d === 1, dist: d, currentSlot: cS, playerSlot: pS };
 }
 
@@ -1430,7 +1434,8 @@ function render(entries) {
         var game = entries[i].game, state = entries[i].state;
         var Z = state ? (state.move_number != null ? state.move_number : null) : null;
         var color = getColor(game);
-        var info = getTurnInfo(Z, N, P, color);
+        var hc = state && state.handicap ? state.handicap : 0;
+        var info = getTurnInfo(Z, N, P, color, hc);
         if (info.myTurn) anyMyTurn = true;
         if (info.imNext) anyImNext = true;
         prevMoves[game.id] = Z;
