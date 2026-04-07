@@ -1241,7 +1241,7 @@ function renderTracker() {
     h += '<div class="tracker-slots">';
     if (hasGame) {
         for (var i = 0; i < totalSlots; i++) {
-            var isB = (i % 2 === 0) !== (handicap > 0), ti = Math.floor(i / 2), isMyT = color === 'black' ? isB : !isB;
+            var isB = (i % 2 === 0) !== (handicap >= 2), ti = Math.floor(i / 2), isMyT = color === 'black' ? isB : !isB;
             var isCurr = i === turnInfo.currentSlot, isMine = i === turnInfo.playerSlot;
             var isNext = isMine && turnInfo.dist === 1 && !isCurr;
             if (isMyT) {
@@ -1420,7 +1420,7 @@ function getColor(game) {
 function getTurnInfo(Z, N, P, color, handicap) {
     if (typeof Z !== 'number' || !color)
         return { myTurn: false, imNext: false, dist: 0, currentSlot: 0, playerSlot: 0 };
-    var hc = handicap > 0;
+    var hc = handicap >= 2;
     var t = 2 * N, pS = (color === 'white') !== hc ? 2 * P + 1 : 2 * P, cS = Z % t, d = (pS - cS + t) % t;
     return { myTurn: d === 0, imNext: d === 1, dist: d, currentSlot: cS, playerSlot: pS };
 }
