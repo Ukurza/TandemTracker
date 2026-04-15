@@ -72,11 +72,15 @@
         button:active { transform: scale(0.97); }
         button:disabled { opacity: 0.5; cursor: not-allowed; }
 
-        .tracker {
+        .tracker-wrap {
+            position: relative;
             width: 100%; max-width: 500px;
-            background: var(--card); border: 2px solid #2a2a4a;
-            border-radius: 18px; padding: 24px 22px;
             margin-bottom: 20px;
+        }
+        .tracker {
+            width: 100%;
+            background: var(--card); border: 2px solid #2a2a4a;
+            border-radius: 18px; padding: 24px 22px 56px;
             transition: border-color 0.5s, box-shadow 0.5s;
         }
         .tracker.state-now {
@@ -215,16 +219,19 @@
         }
 
         #results { width: 100%; max-width: 500px; }
-        .game-link { display: block; text-align: center; color: var(--accent); text-decoration: none; font-size: 0.95em; margin-bottom: 6px; }
+        .game-link { color: var(--accent); text-decoration: none; font-size: 0.95em; white-space: nowrap; }
         .game-link:hover { opacity: 0.8; }
         .status-msg { text-align: center; padding: 28px; color: var(--muted); line-height: 1.6; }
         .status-msg.error { color: var(--accent); }
 
         .footer-row {
-            display: flex; align-items: center; justify-content: center;
-            gap: 14px; width: 100%; max-width: 500px; margin-top: 6px;
+            display: flex; align-items: center; flex-wrap: wrap;
+            justify-content: space-between;
+            gap: 6px 14px; width: 100%; max-width: 500px; margin-top: 6px;
         }
-        .refresh-info { text-align: center; color: var(--muted); font-size: 0.75em; }
+        .footer-links { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 14px; }
+        .footer-meta { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+        .refresh-info { color: var(--muted); font-size: 0.75em; }
         .conn-badge {
             font-size: 0.7em; font-weight: 600; padding: 2px 8px;
             border-radius: 5px; display: inline-flex; align-items: center; gap: 5px;
@@ -250,15 +257,27 @@
         .api-error-bar .err-time { color: #a44; font-weight: 400; font-size: 0.85em; margin-left: auto; }
         @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 
-        .alarm-toggle {
-            display: flex; align-items: center; gap: 6px;
-            cursor: pointer; color: #2a2a3a; font-size: 0.7em;
-            user-select: none; transition: color 0.3s;
+        .alarm-btn {
+            position: absolute; bottom: 14px; right: 14px;
+            display: flex; align-items: center; gap: 7px;
+            padding: 8px 16px; border-radius: 20px;
+            background: rgba(255,255,255,0.04);
+            border: 1.5px solid #3a3a5a;
+            color: #666; font-size: 0.8em; font-weight: 600;
+            cursor: pointer; user-select: none;
+            transition: background 0.25s, border-color 0.25s, color 0.25s, box-shadow 0.25s;
         }
-        .alarm-toggle:hover { color: #444; }
-        .alarm-toggle.is-on { color: var(--amber); }
-        .alarm-icon { font-size: 1.2em; }
-        .alarm-toggle.is-on .alarm-icon { animation: ring 0.6s ease; }
+        .alarm-btn:hover {
+            background: rgba(255,255,255,0.08);
+            border-color: #555; color: var(--text);
+        }
+        .alarm-btn.is-on {
+            background: rgba(245,158,11,0.12);
+            border-color: var(--amber); color: var(--amber);
+            box-shadow: 0 0 12px rgba(245,158,11,0.2);
+        }
+        .alarm-icon { font-size: 1.15em; line-height: 1; }
+        .alarm-btn.is-on .alarm-icon { animation: ring 0.6s ease; }
         @keyframes ring {
             0% { transform: rotate(0); } 20% { transform: rotate(14deg); }
             40% { transform: rotate(-14deg); } 60% { transform: rotate(8deg); }
@@ -446,16 +465,15 @@
     </div>
 
     <div id="apiError"></div>
-    <div id="tracker" class="tracker"></div>
+    <div class="tracker-wrap">
+        <div id="tracker" class="tracker"></div>
+        <button class="alarm-btn" id="alarmToggle" onclick="toggleAlarm()" title="Toggle turn alarm">
+            <span class="alarm-icon">🔔</span>
+            <span id="alarmLabel">Alarm</span>
+        </button>
+    </div>
     <div id="blame"></div>
     <div id="results"></div>
-
-    <div class="footer-row">
-        <div class="alarm-toggle" id="alarmToggle" onclick="toggleAlarm()">
-            <span class="alarm-icon">🔔</span>
-            <span id="alarmLabel">alarm</span>
-        </div>
-    </div>
 
     <div class="toast" id="toast">✔ Link copied!</div>
 
@@ -549,7 +567,8 @@ function saveSettings() {
             numPlayers: numPlayers,
             myPlayerIndex: myPlayerIndex,
             teamNames: teamNames,
-            username: document.getElementById('username') ? document.getElementById('username').value.trim() : ''
+            username: document.getElementById('username') ? document.getElementById('username').value.trim() : '',
+            alarmOn: alarmOn
         }));
     } catch(e) { /* storage unavailable */ }
 }
@@ -571,6 +590,13 @@ function loadSettings() {
             // Only set if URL didn't already specify one
             var el = document.getElementById('username');
             if (el && !el.value.trim()) el.value = s.username;
+        }
+        if (s.alarmOn) {
+            alarmOn = true;
+            var t = document.getElementById('alarmToggle');
+            if (t) t.classList.add('is-on');
+            var l = document.getElementById('alarmLabel');
+            if (l) l.textContent = 'Alarm on';
         }
     } catch(e) { /* ignore corrupt data */ }
 }
@@ -882,17 +908,18 @@ async function gameOver() {
     stopPolling(); wsDisconnect(); clearState();
     cachedActiveGames = []; cachedStates = {}; lastEntries = [];
 
-    if (gamesSnapshot.length) {
-        showBlameComputing();
-        try {
-            var blameList = await Promise.all(gamesSnapshot.slice(0, 5).map(computeClockBlame));
-            blameList = blameList.filter(Boolean);
-            renderClockBlame(blameList);
-        } catch(e) {
-            dbg('gameOver blame error: ' + e.message, 'err');
-            clearBlame();
-        }
-    }
+    // Clock blame disabled
+    // if (gamesSnapshot.length) {
+    //     showBlameComputing();
+    //     try {
+    //         var blameList = await Promise.all(gamesSnapshot.slice(0, 5).map(computeClockBlame));
+    //         blameList = blameList.filter(Boolean);
+    //         renderClockBlame(blameList);
+    //     } catch(e) {
+    //         dbg('gameOver blame error: ' + e.message, 'err');
+    //         clearBlame();
+    //     }
+    // }
 
     showStatus('✔ Game ended — waiting for a new game… <span id="waitCountdown">10</span>s');
     gameOverInProgress = false;
@@ -1124,9 +1151,10 @@ var audioCtx = null, wasMyTurn = false;
 function toggleAlarm() {
     alarmOn = !alarmOn;
     document.getElementById('alarmToggle').classList.toggle('is-on', alarmOn);
-    document.getElementById('alarmLabel').textContent = alarmOn ? 'alarm on' : 'alarm';
+    document.getElementById('alarmLabel').textContent = alarmOn ? 'Alarm on' : 'Alarm';
     if (!alarmOn) stopAlarm();
     if (alarmOn && !audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    saveSettings();
 }
 function playBeep(f, d, v) {
     if (!audioCtx) return;
@@ -1429,7 +1457,7 @@ function getTurnInfo(Z, N, P, color, handicap) {
 function render(entries) {
     renderTracker();
     var N = numPlayers, P = myPlayerIndex;
-    var anyMyTurn = false, anyImNext = false, linksHTML = '';
+    var anyMyTurn = false, anyImNext = false, gameLinksHTML = '';
     for (var i = 0; i < entries.length; i++) {
         var game = entries[i].game, state = entries[i].state;
         var Z = state ? (state.move_number != null ? state.move_number : null) : null;
@@ -1439,11 +1467,11 @@ function render(entries) {
         if (info.myTurn) anyMyTurn = true;
         if (info.imNext) anyImNext = true;
         prevMoves[game.id] = Z;
-        linksHTML += '<a class="game-link" href="https://online-go.com/game/' + game.id + '" target="_blank" rel="noopener">↗ Open on OGS</a>';
+        gameLinksHTML += '<a class="game-link" href="https://online-go.com/game/' + game.id + '" target="_blank" rel="noopener">↗ Open on OGS</a>';
     }
     var cc = wsConnected ? 'live' : 'poll';
     var ct = wsConnected ? 'live' : 'polling ' + (currentInterval / 1000) + 's';
-    linksHTML += '<div class="footer-row"><span class="conn-badge ' + cc + '"><span class="conn-dot"></span>' + ct + '</span><span class="refresh-info">Updated: ' + new Date().toLocaleTimeString('en-GB') + '</span></div>';
+    var linksHTML = '<div class="footer-row"><div class="footer-links">' + gameLinksHTML + '</div><div class="footer-meta"><span class="conn-badge ' + cc + '"><span class="conn-dot"></span>' + ct + '</span><span class="refresh-info">Updated: ' + new Date().toLocaleTimeString('en-GB') + '</span></div></div>';
     document.getElementById('results').innerHTML = linksHTML;
     document.body.classList.toggle('my-turn', anyMyTurn);
     document.body.classList.toggle('im-next', !anyMyTurn && anyImNext);
