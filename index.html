@@ -558,6 +558,10 @@ var lastEntries = [], teamNames = ['', ''];
 var numPlayers = 2, myPlayerIndex = 0, lastApiError = null;
 var prevMoves = {};
 
+/* ── Alarm state (declared early so loadSettings can set them before IIFE runs) ── */
+var alarmOn = false, alarmPlaying = false, alarmTimeout = null;
+var audioCtx = null, wasMyTurn = false;
+
 /* ── LocalStorage persistence ───────────────────── */
 var STORAGE_KEY = 'ogs-tandem-settings';
 
@@ -1145,9 +1149,6 @@ function renderClockBlame(blameList) {
 }
 
 /* ── Alarm ──────────────────────────────────────── */
-var alarmOn = false, alarmPlaying = false, alarmTimeout = null;
-var audioCtx = null, wasMyTurn = false;
-
 function toggleAlarm() {
     alarmOn = !alarmOn;
     document.getElementById('alarmToggle').classList.toggle('is-on', alarmOn);
