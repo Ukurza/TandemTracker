@@ -597,6 +597,7 @@ function loadSettings() {
         }
         if (s.alarmOn) {
             alarmOn = true;
+            try { if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e) {}
             var t = document.getElementById('alarmToggle');
             if (t) t.classList.add('is-on');
             var l = document.getElementById('alarmLabel');
@@ -1159,6 +1160,7 @@ function toggleAlarm() {
 }
 function playBeep(f, d, v) {
     if (!audioCtx) return;
+    if (audioCtx.state === 'suspended') { audioCtx.resume().then(function() { playBeep(f, d, v); }); return; }
     var o = audioCtx.createOscillator(), g = audioCtx.createGain();
     o.type = 'square'; o.frequency.value = f;
     g.gain.setValueAtTime(v, audioCtx.currentTime);
